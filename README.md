@@ -1,19 +1,28 @@
-# GREEN DAWN
+# GREEN DAWN — Mission 01: Jungle Assault
 
-An original pixel-art top-down jungle squad tactics game for Android inspired by classic Amiga action games. No assets or code from Cannon Fodder are included.
+Original retro pixel-art squad tactics game for Android. Lead JAX, ACE and PIP through enemy patrols to destroy a radio bunker. Inspired by the feel of classic Amiga games; no original Cannon Fodder assets or code are used.
 
-## Play
+## Download the Android APK (Samsung / other Android phones)
 
-Mission 01: Jungle Assault. Lead JAX, ACE and PIP through enemy patrols, collect ammo and destroy a radio bunker. Touch controls: MOVE, FIRE, GRENADE and squad selection. Supports offline landscape play.
+1. Open **[GitHub Actions](https://github.com/MaviUK/Green-Dawn/actions/workflows/android-debug-apk.yml)**.
+2. Tap the latest successful **Build Green Dawn Android APK** run. If there is no run, choose **Run workflow** and select `main`.
+3. Under **Artifacts**, download `green-dawn-android-debug-apk` (a ZIP).
+4. Extract the ZIP using Samsung My Files, then open `app-debug.apk` and allow installation when prompted.
 
-## Installable Android APK
+The build is a *debug APK* for testing, not yet a release-signed Google Play version. If you install an APK from another source, you may have to grant that app permission to install unknown apps; you can turn this permission off afterwards.
 
-Go to **Actions** > **Build Green Dawn Android APK** > the latest run (or **Run workflow**). After a successful build, download the artifact **green-dawn-android-debug-apk** and extract **app-debug.apk** from the ZIP. Install the APK on your Android phone via Files. The Android debug build is for private testing; release signing and Play Store upload are later steps.
+## Play immediately in a browser
 
-## Project
+Open `index.html` in a browser or serve the repository as a static site. Rotate your device to **landscape**. Use **MOVE** to command soldiers, **FIRE** to shoot, and **GRENADE** to lob explosives. Android Back pauses/resumes.
 
-- `index.html` — standalone playable browser preview
-- `android/` — native Android offline fullscreen WebView wrapper and included game
-- `.github/workflows/android-debug-apk.yml` — APK build workflow
+## Project layout
 
-This app needs **no Internet permission** and does not collect personal information. Game progress is stored locally on the device. The Android APK can be rebuilt by GitHub Actions. Version 0.2.0.
+- `index.html`: self-contained browser game with canvas rendering, touch controls and locally saved progress.
+- `android/app/src/main/assets/index.html`: identical offline game bundled inside the APK.
+- `android/app/src/main/java/uk/co/greendawn/jungle/MainActivity.java`: locked-down fullscreen WebView Android activity.
+- `.github/workflows/android-debug-apk.yml`: automated Android debug APK build on push.
+- `android/app/build.gradle`: Android SDK/Gradle configuration.
+
+**Privacy:** No accounts, ads, tracking or Internet permission. Save data stays on the device. All game artwork and effects are original procedural work.
+
+**Version:** 0.2.0 · Package ID: `uk.co.greendawn.jungle` · Min Android: 8.0 (API 26).
