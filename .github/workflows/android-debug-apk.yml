@@ -32,10 +32,16 @@ jobs:
       # GitHub-hosted Ubuntu runners already include the Android SDK and
       # command-line tools. The old setup-android@v3 action attempts to
       # install the removed SDK package named "tools" and fails.
-      - name: Check preinstalled Android SDK
+      - name: Locate preinstalled Android SDK tools
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          command -v sdkmanager
+          SDKMANAGER_BIN="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          if [ -z "$SDKMANAGER_BIN" ] || [ ! -x "$SDKMANAGER_BIN" ]; then
+            echo "::error::Android SDK command-line tools not installed under ANDROID_HOME"
+            exit 1
+          fi
+          echo "Using $SDKMANAGER_BIN"
+          echo "$(dirname "$SDKMANAGER_BIN")" >> "$GITHUB_PATH"
       - name: Install Android platform
         run: |
           yes | sdkmanager --licenses > /dev/null || true
