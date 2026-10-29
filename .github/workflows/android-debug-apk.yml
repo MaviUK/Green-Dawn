@@ -29,8 +29,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Configure Android SDK
-        uses: android-actions/setup-android@v3
+      # GitHub-hosted Ubuntu runners already include the Android SDK and
+      # command-line tools. The old setup-android@v3 action attempts to
+      # install the removed SDK package named "tools" and fails.
+      - name: Check preinstalled Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          command -v sdkmanager
       - name: Install Android platform
         run: |
           yes | sdkmanager --licenses > /dev/null || true
