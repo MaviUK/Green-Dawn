@@ -27,7 +27,7 @@
 </head>
 <body>
   <main id="game-container">
-    <canvas id="game" tabindex="0" aria-label="Green Dawn jungle assault game. Use landscape mode. Tap to move. Press and hold on the battlefield to shoot in that direction. Tap Grenade then your target to throw."></canvas>
+    <canvas id="game" tabindex="0" aria-label="Green Dawn jungle assault game. Landscape game. Tap to move, hold to fire, drag to aim. Tap SPLIT to make Alpha and Bravo groups; select either group or a soldier, hold a soldier name to transfer, tap JOIN to reunite."></canvas>
     <div id="orientation" role="status"><div class="icon">↻</div><h1>ROTATE TO DEPLOY</h1><p>Turn your phone sideways for the full 16-bit battlefield.</p></div>
   </main>
   <script>
@@ -47,10 +47,11 @@
     green:'#90b963', mint:'#c2db94', cream:'#f5e6bd', sand:'#e4c873', gold:'#f3c95b',
     danger:'#e27e52', hud:'#20291f', red:'#a73d32', shadow:'#162015' };
   const DIFFICULTY = { enemySight:142, enemyFire:1.38, gunRate:.18, moveSpeed:73, grenadeRadius:53 };
-  let W=512,VW=402,VH=CTRL_Y,state='title',mode='move',selected=-1;
+  let W=512,VW=402,VH=CTRL_Y,state='title',mode='move',selected=-1,split=false;
   let cam={x:0,y:0}, pointer={x:0,y:0,wx:0,wy:0,down:false,firePointer:null};
   const HOLD_TO_FIRE_MS=240; // one finger: quick tap moves, long hold shoots
   let gesture=null; // {id,started,x,y,wx,wy,firing}; active battlefield finger only
+  let hudPress=null; // hold a soldier row to transfer between Alpha and Bravo
   let soldiers=[],enemies=[],bullets=[],bombs=[],particles=[],decals=[],trees=[],rocks=[];
   let bunker,ammo,terrain,mapData=[],clock=0,shotClock=0,fireUntil=0,aim={x:0,y:0};
   let score=0,kills=0,grenades=3,started=0,freeze=0,message='',messageTime=0,panHint=0;
@@ -299,12 +300,12 @@
   }
 
   function resetMission(){
-    state='playing';mode='move';selected=-1;clock=0;started=performance.now()/1000;
+    state='playing';mode='move';selected=-1;split=false;clock=0;started=performance.now()/1000;
     cancelGesture();shotClock=0;score=0;kills=0;grenades=3;freeze=0;playerShots=0;
     soldiers=[
-      {name:'JAX',x:111,y:573,alive:true,rank:1,fire:0,path:[],face:-.6,id:0,color:'#4f803d'},
-      {name:'ACE',x:95,y:592,alive:true,rank:1,fire:.05,path:[],face:-.6,id:1,color:'#637e3d'},
-      {name:'PIP',x:120,y:604,alive:true,rank:1,fire:.1,path:[],face:-.6,id:2,color:'#779447'}
+      {name:'JAX',x:111,y:573,alive:true,rank:1,fire:0,path:[],face:-.6,id:0,team:'A',color:'#4f803d'},
+      {name:'ACE',x:95,y:592,alive:true,rank:1,fire:.05,path:[],face:-.6,id:1,team:'A',color:'#637e3d'},
+      {name:'PIP',x:120,y:604,alive:true,rank:1,fire:.1,path:[],face:-.6,id:2,team:'A',color:'#779447'}
     ];
     const posts=[[287,498],[392,429],[501,344],[565,330],[701,282],[775,239],[822,197],[906,238],[863,315]];
     enemies=posts.map((p,i)=>({x:p[0],y:p[1],homeX:p[0],homeY:p[1],id:i,health:1,alive:true,dir:(i*2.2)%6.28,fire:rand(.4,1.8),wander:rand(.7,3),patrolX:p[0],patrolY:p[1],seen:false}));
@@ -319,9 +320,53 @@
   function currentSoldiers(){
     const live=soldiers.filter(s=>s.alive);
     if(selected===-1)return live;
+    if(selected==='A'||selected==='B'){
+      const team=live.filter(s=>s.team===selected);
+      return team.length?team:live;
+    }
     const chosen=soldiers[selected];return chosen&&chosen.alive?[chosen]:live;
   }
-  function chooseSquad(id){selected=id;if(id>=0&&!soldiers[id].alive)selected=-1;flash(selected<0?'ALPHA SQUAD':soldiers[selected].name+' SELECTED',1.4);}
+  function teamCount(team){return soldiers.filter(s=>s.alive&&s.team===team).length;}
+  function focusSelection(){
+    const leader=currentSoldiers()[0];if(!leader)return;
+    cam.x=clamp(leader.x-VW*.41,0,Math.max(0,MW-VW));
+    cam.y=clamp(leader.y-VH*.56,0,MH-VH);
+  }
+  function chooseTeam(team){
+    if(!split){selected=-1;focusSelection();return;}
+    if(teamCount(team)===0){flash(team==='A'?'ALPHA HAS NO SURVIVORS':'BRAVO HAS NO SURVIVORS',1.7);sound('error');return;}
+    selected=team;cancelGesture();focusSelection();
+    flash(team==='A'?'ALPHA SELECTED':'BRAVO SELECTED',1.2);
+  }
+  function chooseSquad(id){
+    if(id<0){if(split)toggleSplit();else {selected=-1;focusSelection();flash('ALL SOLDIERS',1.3);}return;}
+    if(!soldiers[id]||!soldiers[id].alive){flash('SOLDIER LOST',1.4);sound('error');return;}
+    selected=id;cancelGesture();focusSelection();flash(soldiers[id].name+' SELECTED',1.2);
+  }
+  function toggleSplit(){
+    cancelGesture();
+    if(split){
+      // Regroup at the currently selected team instead of abandoning either
+      // squad at its old destination. This is a physical rally order.
+      const leader=currentSoldiers()[0];
+      const rally=leader?{x:leader.x,y:leader.y}:null;
+      split=false;selected=-1;soldiers.forEach(s=>s.team='A');
+      if(rally)moveSquad(rally.x,rally.y);
+      focusSelection();flash('SQUADS REGROUPING',2);sound('move');return;
+    }
+    const live=soldiers.filter(s=>s.alive);
+    if(live.length<2){flash('NEED 2 SOLDIERS TO SPLIT',2);sound('error');return;}
+    // Two with Alpha, one with Bravo. Both keep their existing orders.
+    live.forEach((s,i)=>s.team=i===live.length-1?'B':'A');
+    split=true;selected='A';focusSelection();flash('ALPHA + BRAVO: TAP TEAM TO SWITCH',2.7);sound('move');
+  }
+  function transferSoldier(id){
+    if(!split||!soldiers[id]||!soldiers[id].alive)return false;
+    const s=soldiers[id],from=s.team,to=from==='A'?'B':'A';
+    if(teamCount(from)<2){flash('EACH TEAM NEEDS A SOLDIER',1.9);sound('error');return false;}
+    s.team=to;selected=to;focusSelection();
+    flash(s.name+' MOVED TO '+(to==='A'?'ALPHA':'BRAVO'),2);sound('move');return true;
+  }
   function flash(txt,duration=2){message=txt;messageTime=duration;}
   function moveSquad(x,y){
     const live=currentSoldiers();if(!live.length)return;
@@ -379,7 +424,9 @@
     if(!s.alive)return;s.alive=false;s.path=[];
     decals.push({x:s.x,y:s.y,color:'#543f2d',life:60});
     addParticles(s.x,s.y,'#b56a48',15,42,'spark');sound('down');flash(s.name+' HAS FALLEN',3);
-    if(selected===s.id)selected=-1;
+    if(selected===s.id)selected=split?s.team:-1;
+    if(split&&teamCount('A')===0&&teamCount('B')>0)selected='B';
+    else if(split&&teamCount('B')===0&&teamCount('A')>0)selected='A';
     if(!soldiers.some(k=>k.alive)){state='lost';sound('fail');}
   }
   function killEnemy(e){
@@ -581,7 +628,15 @@
       ctx.globalAlpha=.55;ctx.strokeRect((p.x|0)-5.5,(p.y|0)-5.5,11,11);ctx.globalAlpha=1;
     }
     for(const e of enemies){if(!e.alive)continue;iconSoldier(ctx,e.x,e.y,e.dir,true,true,false,clock*e.seen);}
-    for(const s of soldiers){if(s.alive)iconSoldier(ctx,s.x,s.y,s.face,true,false,selected===s.id,clock*(s.path.length>0));}
+    for(const s of soldiers){
+      if(!s.alive)continue;
+      const chosen=selected===s.id||(split&&selected===s.team);
+      iconSoldier(ctx,s.x,s.y,s.face,true,false,chosen,clock*(s.path.length>0));
+      if(split){
+        rect(s.x-5,s.y-21,10,8,s.team==='A'?'#c7a95d':'#66b6c3');
+        text(s.team,s.x,s.y-21,7,'#142219','center');
+      }
+    }
     for(const b of bullets){ctx.fillStyle=b.owner==='player'?'#f9e58e':'#ff9471';
       ctx.fillRect(Math.round(b.x),Math.round(b.y),3,2);
       ctx.fillStyle=b.owner==='player'?'#fffcdb':'#e5583d';ctx.fillRect(Math.round(b.x-b.vx*.015),Math.round(b.y-b.vy*.015),2,2);
@@ -633,7 +688,8 @@
     for(let yy=0;yy<h;yy+=2){let xx=x+riverX(yy/h*MH)/MW*w;rect(xx,y+yy,5,2,'#4a858c');}
     rect(x+bunker.x/MW*w,y+bunker.y/MH*h,4,4,bunker.dead?'#5b5b47':'#f6c76b');
     for(const e of enemies)if(e.alive)rect(x+e.x/MW*w,y+e.y/MH*h,2,2,'#b75e44');
-    for(const s of soldiers)if(s.alive)rect(x+s.x/MW*w,y+s.y/MH*h,3,3,'#e4e7b8');
+    for(const s of soldiers)if(s.alive)rect(x+s.x/MW*w,y+s.y/MH*h,3,3,
+      split?(s.team==='A'?'#f5d477':'#83d1d8'):'#e4e7b8');
     stroke(x,y,w,h,'#51643d');
     ctx.strokeStyle='#edca74';ctx.lineWidth=.8;
     ctx.strokeRect((x+cam.x/MW*w)|0,(y+cam.y/MH*h)|0,VW/MW*w,VH/MH*h);
@@ -643,19 +699,28 @@
     rect(0,0,HUD,38,'#101b15');rect(0,38,HUD,3,'#728246');
     text('GREEN DAWN',8,7,13,C.sand);
     text('TACTICAL COMMAND',8,24,7,C.mint);
-    rect(5,47,100,18,selected===-1?'#607542':'#303e29');
-    stroke(5,47,100,18,selected===-1?'#d4be73':'#65724a');
-    text('▸ ALPHA / ALL',11,52,10,C.cream);
+    if(!split){
+      rect(5,47,100,18,selected===-1?'#607542':'#303e29');
+      stroke(5,47,100,18,selected===-1?'#d4be73':'#65724a');
+      text('▸ ALL  '+soldiers.filter(s=>s.alive).length,11,52,10,C.cream);
+    }else{
+      for(const [team,x] of [['A',5],['B',56]]){
+        const on=selected===team;
+        rect(x,47,49,18,on?(team==='A'?'#756939':'#346a72'):'#303e29');
+        stroke(x,47,49,18,on?(team==='A'?'#e7ca72':'#8ed7dc'):'#63724b');
+        text(team+' '+teamCount(team),x+6,52,10,team==='A'?C.sand:'#94d6df');
+      }
+    }
     soldiers.forEach((s,i)=>{
-      const y=69+i*32,on=selected===i;
+      const y=69+i*32,on=selected===i||(split&&selected===s.team);
       rect(5,y,100,29,on?'#647344':i%2===0?'#2d3b2d':'#26332a');
       stroke(5,y,100,29,on?'#e4c776':'#40563c');
       iconSoldier(ctx,17,y+15,0,s.alive,false,false,0);
       text(s.name,30,y+4,11,s.alive?C.cream:'#786b59');
       text(s.alive?(s.path.length?'MOVING':'READY'):'FALLEN',30,y+18,8,s.alive?'#a1bb80':'#da6c58');
-      text(s.alive?'★':'×',94,y+6,12,s.alive?C.sand:C.danger,'right');
+      text(s.alive?(split?s.team:'★'):'×',94,y+6,12,s.alive?(split&&s.team==='B'?'#83d1d8':C.sand):C.danger,'right');
     });
-    text('AMMO',8,171,9,C.mint);
+    text(split?'HOLD NAME: SWAP':'AMMO',8,171,split?8:9,C.mint);
     for(let i=0;i<6;i++){
       const x=8+i*15;
       rect(x,184,10,12,i<grenades?'#a98749':'#303a2c');
@@ -676,22 +741,24 @@
     text(label,x+w/2,y+7,11,active?C.cream:'#d2deb8','center');
   }
   function buttons(){
-    const gap=5,p=5;
-    const prompt=Math.floor(VW*.46);
-    const remaining=VW-2*p-prompt-3*gap;
-    const a=Math.floor(remaining*.47),b=Math.floor(remaining*.29),c=remaining-a-b;
-    const x=HUD+p+prompt+gap,y=CTRL_Y+3,h=31;
+    const gap=4,p=5,prompt=Math.floor(VW*.30);
+    const remaining=VW-2*p-prompt-4*gap;
+    const a=Math.floor(remaining*.265),b=Math.floor(remaining*.32),c=Math.floor(remaining*.22),d=remaining-a-b-c;
+    const x=HUD+p+prompt+gap,y=CTRL_Y+3;
     const list=[
-      {name:mode==='grenade'?'CANCEL FRAG':'FRAG '+grenades,mode:'grenade',x,w:a},
-      {name:audioOn?'SFX ON':'SFX OFF',mode:'sound',x:x+a+gap,w:b},
-      {name:'PAUSE',mode:'pause',x:x+a+b+gap*2,w:c}
+      {name:split?'JOIN':'SPLIT',mode:'split',x,w:a},
+      {name:mode==='grenade'?'CANCEL FRAG':'FRAG '+grenades,mode:'grenade',x:x+a+gap,w:b},
+      {name:audioOn?'SFX ON':'SFX OFF',mode:'sound',x:x+a+b+gap*2,w:c},
+      {name:'PAUSE',mode:'pause',x:x+a+b+c+gap*3,w:d}
     ];
-    for(const el of list)button(el.x,y,el.w,h,el.name,el.mode,el.mode===mode);
+    for(const el of list)button(el.x,y,el.w,31,el.name,el.mode,el.mode==='split'?split:el.mode===mode);
     return list;
   }
   function drawControls(){
     rect(HUD,CTRL_Y,VW,WH-CTRL_Y,'#1a251c');rect(HUD,CTRL_Y,VW,2,'#677e48');
-    text(mode==='grenade'?'TAP TARGET':'TAP TO MOVE',HUD+9,CTRL_Y+6,9,C.cream);
+    const leader=currentSoldiers()[0];
+    const title=split?(typeof selected==='number'&&selected>=0?leader?.name:selected==='B'?'BRAVO':'ALPHA'):'TAP TO MOVE';
+    text(mode==='grenade'?'TAP TARGET':title||'TAP MOVE',HUD+9,CTRL_Y+6,9,C.cream);
     text(mode==='grenade'?'FRAG ARMED':'HOLD TO FIRE',HUD+9,CTRL_Y+19,9,C.gold);
     buttons();
   }
@@ -710,7 +777,7 @@
     const bw=Math.min(228,VW-50),bh=37;titleStart={x:x-bw/2,y:183,w:bw,h:bh};
     button(titleStart.x,titleStart.y,bw,bh,'►  DEPLOY SQUAD','start',true);
     text('TAP TO MOVE  ·  HOLD TO FIRE',x,232,9,'#c6d4a9','center');
-    text('GRENADES DESTROY BUILDINGS',x,244,8,'#98ad87','center');
+    text('SPLIT ALPHA / BRAVO IN MISSION',x,244,8,'#98ad87','center');
     if(saved.wins>0)text(`MISSIONS CLEARED ${saved.wins}  •  BEST ${saved.bestScore}`,x,265,8,C.sand,'center');
   }
   function drawPause(){
@@ -793,12 +860,12 @@
   }
   function inside(p,b){return p.x>=b.x&&p.x<b.x+b.w&&p.y>=b.y&&p.y<b.y+b.h;}
   function cancelGesture(){
-    gesture=null;pointer.firePointer=null;pointer.down=false;mouseRight=false;fireUntil=0;
+    gesture=null;hudPress=null;pointer.firePointer=null;pointer.down=false;mouseRight=false;fireUntil=0;
   }
   function onPointerDown(e){
     if(e.cancelable)e.preventDefault();
     // Ignore additional fingers: one battlefield gesture at a time.
-    if(gesture)return;
+    if(gesture||hudPress)return;
     canvas.focus();audioInit();
     const p=where(e);Object.assign(pointer,p);pointer.down=true;
     try{canvas.setPointerCapture(e.pointerId);}catch(_){}
@@ -806,8 +873,11 @@
     if(state==='paused'){if(inside(p,resultStart))state='playing';return;}
     if(state==='won'||state==='lost'){if(inside(p,resultStart))resetMission();return;}
     if(p.x<HUD){
-      if(p.y>=47&&p.y<66)chooseSquad(-1);
-      else if(p.y>=69&&p.y<166){const s=Math.floor((p.y-69)/32);if(s>=0&&s<3)chooseSquad(s);}
+      if(p.y>=47&&p.y<66){if(split)chooseTeam(p.x<55?'A':'B');else chooseSquad(-1);}
+      else if(p.y>=69&&p.y<165){
+        const i=Math.floor((p.y-69)/32);
+        if(i>=0&&i<3)hudPress={id:e.pointerId,soldier:i,started:performance.now(),done:false};
+      }
       return;
     }
     if(p.y>=CTRL_Y){
@@ -815,6 +885,7 @@
       if(hit){
         if(hit.mode==='pause'){state='paused';cancelGesture();}
         else if(hit.mode==='sound'){audioOn=!audioOn;try{localStorage.setItem('green-dawn-audio-v2',audioOn?'on':'off');}catch(_){}if(audioOn)audioInit();}
+        else if(hit.mode==='split')toggleSplit();
         else setMode(hit.mode);
       }
       return;
@@ -836,7 +907,14 @@
     }
   }
   function onPointerUp(e){
-    if(gesture&&e.pointerId!==gesture.id)return;
+    if((gesture&&e.pointerId!==gesture.id)||(hudPress&&e.pointerId!==hudPress.id))return;
+    if(hudPress){
+      const press=hudPress;hudPress=null;
+      if(!press.done&&e.type!=='pointercancel'&&state==='playing')chooseSquad(press.soldier);
+      pointer.down=false;
+      try{if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);}catch(_){}
+      return;
+    }
     if(gesture){
       const elapsed=performance.now()-gesture.started;
       if(state==='playing'&&!gesture.firing&&elapsed<HOLD_TO_FIRE_MS&&e.type!=='pointercancel'){
@@ -860,6 +938,9 @@
     if(state==='won'||state==='lost'){if(e.code==='Enter'||e.code==='Space'){audioInit();resetMission();}return;}
     if(state!=='playing')return;
     if(e.code==='Digit0')chooseSquad(-1);
+    if(e.code==='KeyX')toggleSplit();
+    if(e.code==='Digit4')chooseTeam('A');
+    if(e.code==='Digit5')chooseTeam('B');
     if(['Digit1','Digit2','Digit3'].includes(e.code))chooseSquad(Number(e.code.slice(-1))-1);
     if(e.code==='KeyM')setMode('move');
     if(e.code==='KeyF')setMode('fire');
@@ -868,6 +949,9 @@
   }
   let last=performance.now();
   function tick(t){const dt=clamp((t-last)/1000,0,.04);last=t;timeNow=t;
+    if(state==='playing'&&hudPress&&!hudPress.done&&split&&t-hudPress.started>=520){
+      hudPress.done=true;transferSoldier(hudPress.soldier);
+    }
     if(state==='playing'&&gesture){
       if(!gesture.firing&&t-gesture.started>=HOLD_TO_FIRE_MS){
         gesture.firing=true;pointer.firePointer=gesture.id;
@@ -892,14 +976,18 @@
   window.addEventListener('pagehide',pauseForBackground);
   window.addEventListener('green-dawn-pause',pauseForBackground);
   loadSave();resize();generateTerrain();
-  soldiers=[{name:'JAX',x:111,y:573,alive:true,path:[],face:-.6,id:0},{name:'ACE',x:95,y:592,alive:true,path:[],face:-.6,id:1},{name:'PIP',x:120,y:604,alive:true,path:[],face:-.6,id:2}];
+  soldiers=[{name:'JAX',x:111,y:573,alive:true,team:'A',path:[],face:-.6,id:0},{name:'ACE',x:95,y:592,alive:true,team:'A',path:[],face:-.6,id:1},{name:'PIP',x:120,y:604,alive:true,team:'A',path:[],face:-.6,id:2}];
   enemies=[];bunker={x:871,y:119,w:67,h:53,hp:8,maxHp:8,dead:false};ammo={x:461,y:371,taken:false};
   cam={x:0,y:MH-VH};
   // Expose a tiny read-only test surface to catch playability regressions.
   Object.defineProperty(window,'GREEN_DAWN_TEST',{value:{
     get status(){return {state,mode,score,kills,grenades,alive:soldiers.filter(s=>s.alive).length,enemyCount:enemies.filter(e=>e.alive).length,bunkerHp:bunker.hp,camera:{...cam},time:clock};},
     get controls(){return {pending:!!(gesture&&!gesture.firing),firing:!!(gesture&&gesture.firing),shotsFired:playerShots,aim:{...aim},holdMs:HOLD_TO_FIRE_MS};},
-    get roster(){return soldiers.map(s=>({name:s.name,x:s.x,y:s.y,alive:s.alive,pathLength:s.path.length}));},
+    get roster(){return soldiers.map(s=>({name:s.name,x:s.x,y:s.y,alive:s.alive,team:s.team,pathLength:s.path.length,destination:s.path.at(-1)||null}));},
+    get squads(){return {split,selected,alpha:soldiers.filter(s=>s.alive&&s.team==='A').map(s=>s.name),bravo:soldiers.filter(s=>s.alive&&s.team==='B').map(s=>s.name)};},
+    toggleSplit:()=>toggleSplit(),
+    selectTeam:(team)=>chooseTeam(team),
+    transfer:(id)=>transferSoldier(id),
     commandMove:(x,y)=>moveSquad(x,y),
     commandFire:(x,y)=>{beginFire(x,y);fireUntil=clock+2.5;},
     commandGrenade:(x,y)=>throwGrenade(x,y),
