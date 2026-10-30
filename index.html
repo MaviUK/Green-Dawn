@@ -49,7 +49,7 @@
   const DIFFICULTY = { enemySight:142, enemyFire:1.50, gunRate:.18, moveSpeed:73, grenadeRadius:53 };
   const ENEMY_AI = {hearing:198, alertDuration:4.5, coverRadius:80, suppressionRadius:21};
   let W=512,VW=402,VH=CTRL_Y,state='title',mode='move',selected=-1,split=false;
-  let missionIndex=1,renderedMission=0; // two original jungle battlefields
+  let missionIndex=1,renderedMission=0; // current operation is determined by the saved campaign
   let cam={x:0,y:0}, pointer={x:0,y:0,wx:0,wy:0,down:false,firePointer:null};
   const HOLD_TO_FIRE_MS=240; // one finger: quick tap moves, long hold shoots
   const MARCH_GAP=19, TRAIL_STEP=3, TRAIL_LIMIT=620; // one-file marching, each soldier follows actual footsteps
@@ -61,7 +61,18 @@
   let score=0,kills=0,grenades=3,started=0,freeze=0,message='',messageTime=0,panHint=0;
   let timeNow=0,mouseRight=false,hasAudio=false,audioOn=true,audioCtx=null,objectiveArrow=0;
   let playerShots=0;
-  let saved={wins:0,bestScore:0,bestSurvivors:0,completed:[]};
+  // Permanent personnel records. A separate v0.8 save starts the new one-way
+  // campaign with fresh recruits, since older test saves had no soldier identities.
+  const CAREER_KEY='green-dawn-campaign-v1',MAX_DEPLOY=3,RECRUITS_PER_VICTORY=2;
+  const RANKS=['RECRUIT','PRIVATE','L/CPL','CORPORAL','SERGEANT','STAFF SGT','WARRANT','LIEUTENANT','CAPTAIN','MAJOR','COLONEL'];
+  const SHORT_RANKS=['RCT','PVT','LCP','CPL','SGT','SSG','WO','LT','CPT','MAJ','COL'];
+  const RECRUIT_NAMES=['JAX','ACE','PIP','ROOK','NASH','HOLT','DEX','BECK','MILO','TUCK',
+    'JUNO','KNOX','MACK','KIP','WREN','COLE','REX','DALE','VEX','LOU','BUCK','FINN',
+    'KAZ','BEAU','SKIP','ASH','OZ','JEM','KIT','DOC','FOX','DASH','STAN','ZEKE'];
+  let career={nextMission:1,nextId:0,active:[],fallen:[],victories:[],bestScore:0};
+  let afterAction={mission:1,fallen:[],promotions:[],newRecruits:[],score:0};
+  let missionLossStart=0,archiveScroll=0,archiveFinger=null;
+  const operationName=n=>n===1?'JUNGLE ASSAULT':n===2?'DEPOT RAID':'AWAITING ORDERS';
   // A small settings key that survives a native WebView restart.
   try {audioOn=localStorage.getItem('green-dawn-audio-v2')!=='off';}catch(_){}
   let seed=1;
@@ -73,16 +84,80 @@
   const isMobile=()=>('ontouchstart' in window)||(navigator.maxTouchPoints>0);
   let pathLine=[{x:92,y:590},{x:227,y:539},{x:355,y:443},{x:498,y:359},{x:601,y:331},{x:718,y:284},{x:820,y:209},{x:883,y:143}];
 
-  function loadSave(){
-    try {const d=JSON.parse(localStorage.getItem('green-dawn-career-v1')||'{}');saved={...saved,...d};
-      if(!Array.isArray(saved.completed))saved.completed=[];
-      if(saved.wins>0&&!saved.completed.includes(1))saved.completed.push(1);
-    }catch(_){/* file:// storage may be unavailable */}
+  function addRecruits(count){
+    const added=[];
+    for(let i=0;i<count;i++){
+      const n=career.nextId++;
+      const member={id:'r'+n,name:RECRUIT_NAMES[n]||'TROOPER '+(n+1),rank:0,missions:0,joinedMission:career.nextMission,order:n};
+      career.active.push(member);added.push(member);
+    }
+    return added;
   }
-  function saveCareer(){
-    try{saved.wins++;saved.bestScore=Math.max(saved.bestScore,score);saved.bestSurvivors=Math.max(saved.bestSurvivors,soldiers.filter(s=>s.alive).length);
-      if(!saved.completed.includes(missionIndex))saved.completed.push(missionIndex);
-      localStorage.setItem('green-dawn-career-v1',JSON.stringify(saved));}catch(_){}
+  function writeCareer(){
+    try{localStorage.setItem(CAREER_KEY,JSON.stringify(career));}catch(_){/* offline storage unavailable */}
+  }
+  function loadSave(){
+    try{
+      const data=JSON.parse(localStorage.getItem(CAREER_KEY)||'null');
+      if(data && Array.isArray(data.active) && Array.isArray(data.fallen) &&
+         Array.isArray(data.victories) && Number.isInteger(data.nextMission) &&
+         data.nextMission>=1 && Number.isInteger(data.nextId) && data.nextId>=3){
+        career={...career,...data};
+        // Never trust a historical menu-selection save to skip operations.
+        const completed=career.victories.map(v=>v.mission);
+        career.nextMission=completed.includes(1)?(completed.includes(2)?3:2):1;
+        career.active=career.active.filter(m=>m&&typeof m.name==='string'&&
+          !career.fallen.some(f=>f.id===m.id));
+        return;
+      }
+    }catch(_){/* malformed or missing save; create fresh recruits */}
+    addRecruits(3);writeCareer();
+  }
+  function rankName(r){return RANKS[clamp(r||0,0,RANKS.length-1)];}
+  function shortRank(r){return SHORT_RANKS[clamp(r||0,0,SHORT_RANKS.length-1)];}
+  function sortedPersonnel(){return [...career.active].sort((a,b)=>b.rank-a.rank||a.order-b.order);}
+  function deployment(){return sortedPersonnel().slice(0,MAX_DEPLOY);}
+  function ensureDeployment(){
+    if(!career.active.length){
+      // A total wipeout must not make the campaign impossible to continue.
+      addRecruits(3);writeCareer();
+    }
+    return deployment();
+  }
+  function recordCasualty(s){
+    if(!s.careerId || career.fallen.some(f=>f.id===s.careerId))return;
+    const idx=career.active.findIndex(m=>m.id===s.careerId);
+    if(idx<0)return;
+    const member=career.active.splice(idx,1)[0];
+    const entry={id:member.id,name:member.name,rank:member.rank,missions:member.missions,
+      mission:missionIndex,cause:'KILLED IN ACTION'};
+    career.fallen.push(entry);
+    afterAction.fallen.push(entry);
+    writeCareer(); // permanent even if the game closes mid-mission
+  }
+  function completeCareerMission(){
+    const completed=career.victories.some(v=>v.mission===missionIndex);
+    if(completed)return; // no double promotions or recruit awards
+    const promotions=[];
+    for(const s of soldiers){
+      if(!s.alive)continue;
+      const member=career.active.find(m=>m.id===s.careerId);
+      if(!member)continue;
+      const previous=member.rank;
+      member.rank=Math.min(member.rank+1,RANKS.length-1);
+      member.missions=(member.missions||0)+1;
+      s.rank=member.rank;
+      promotions.push({name:member.name,from:previous,to:member.rank});
+    }
+    career.bestScore=Math.max(career.bestScore,score);
+    career.victories.push({mission:missionIndex,score,survivors:soldiers.filter(s=>s.alive).length,
+      casualties:afterAction.fallen.length});
+    career.nextMission=missionIndex+1;
+    const added=addRecruits(RECRUITS_PER_VICTORY);
+    afterAction.promotions=promotions;
+    afterAction.newRecruits=added.map(m=>m.name);
+    afterAction.score=score;
+    writeCareer();
   }
 
   function resize(){
@@ -319,17 +394,20 @@
     return smooth;
   }
 
-  function resetMission(level=missionIndex){
-    missionIndex=level===2?2:1;
+  function resetMission(){
+    // No level selector, replay, or backwards travel in the campaign.
+    if(career.nextMission>2){state='title';return;}
+    missionIndex=career.nextMission;
     if(renderedMission!==missionIndex)generateTerrain();
     state='playing';mode='move';selected=-1;split=false;clock=0;started=performance.now()/1000;
     cancelGesture();shotClock=0;score=0;kills=0;grenades=3;freeze=0;playerShots=0;
+    missionLossStart=career.fallen.length;
+    afterAction={mission:missionIndex,fallen:[],promotions:[],newRecruits:[],score:0};
     const insertion=missionIndex===2?[[901,566],[887,580],[915,586]]:[[111,573],[95,592],[120,604]];
-    soldiers=[
-      {name:'JAX',x:insertion[0][0],y:insertion[0][1],alive:true,rank:1,fire:0,path:[],face:-.6,id:0,team:'A',color:'#4f803d'},
-      {name:'ACE',x:insertion[1][0],y:insertion[1][1],alive:true,rank:1,fire:.05,path:[],face:-.6,id:1,team:'A',color:'#637e3d'},
-      {name:'PIP',x:insertion[2][0],y:insertion[2][1],alive:true,rank:1,fire:.1,path:[],face:-.6,id:2,team:'A',color:'#779447'}
-    ];
+    const people=ensureDeployment();
+    soldiers=people.map((m,i)=>({name:m.name,careerId:m.id,x:insertion[i][0],y:insertion[i][1],
+      alive:true,rank:m.rank,fire:i*.05,path:[],face:-.6,id:i,team:'A',
+      color:['#4f803d','#637e3d','#779447'][i]}));
     const posts=missionIndex===2?
       [[796,457],[733,390],[667,320],[562,318],[441,275],[346,213],[262,261],[112,200],[275,150],[202,236]]:
       [[287,498],[392,429],[501,344],[565,330],[701,282],[775,239],[822,197],[906,238],[863,315]];
@@ -345,7 +423,8 @@
     message=missionIndex===2?'DESTROY THE DEPOT  /  REACH EXTRACTION':'REACH THE RADIO BUNKER';
     messageTime=5.2;panHint=7;
     aim={x:bunker.x+bunker.w/2,y:bunker.y+bunker.h/2};
-    cam.x=clamp(insertion[0][0]-VW*.34,0,MW-VW);cam.y=clamp(insertion[0][1]-VH*.70,0,MH-VH);
+    const lead=soldiers[0];
+    cam.x=clamp(lead.x-VW*.34,0,MW-VW);cam.y=clamp(lead.y-VH*.70,0,MH-VH);
     sound('start');
   }
   function currentSoldiers(){
@@ -612,7 +691,7 @@
     if(particles.length>290)particles.splice(0,particles.length-290);
   }
   function killSoldier(s){
-    if(!s.alive)return;
+    if(!s.alive||state!=='playing')return;
     // If the leader falls, a surviving follower assumes command rather than
     // abandoning the others on the far side of a bridge.
     const followers=soldiers.filter(q=>q.alive&&q.followId===s.id);
@@ -624,14 +703,14 @@
       followers.slice(1).forEach((q,i)=>assignFollower(q,newLeader,i+1));
     }
     if(s.followId!==null&&s.followId!==undefined)detachFromLeader(s,false);
-    s.alive=false;s.path=[];
+    s.alive=false;s.path=[];recordCasualty(s);
     fallenBodies.push({x:s.x,y:s.y,face:s.face||0,enemy:false,life:22});
     decals.push({x:s.x,y:s.y,color:'#543f2d',life:60});
     addParticles(s.x,s.y,'#b56a48',15,42,'spark');sound('down');flash(s.name+' HAS FALLEN',3);
     if(selected===s.id)selected=split?s.team:-1;
     if(split&&teamCount('A')===0&&teamCount('B')>0)selected='B';
     else if(split&&teamCount('B')===0&&teamCount('A')>0)selected='A';
-    if(!soldiers.some(k=>k.alive)){state='lost';sound('fail');}
+    if(!soldiers.some(k=>k.alive)){state='lost';afterAction.score=score;sound('fail');cancelGesture();}
   }
   function killEnemy(e){
     if(!e.alive)return;e.alive=false;kills++;score+=100;
@@ -657,7 +736,7 @@
     if(state!=='playing')return;
     const survivors=soldiers.filter(s=>s.alive).length;
     score+=survivors*250+grenades*30;
-    state='won';saveCareer();sound('victory');
+    completeCareerMission();state='won';sound('victory');
     cancelGesture();
   }
   function checkBunker(){
@@ -1086,7 +1165,8 @@
       stroke(5,y,100,29,on?'#e4c776':'#40563c');
       iconSoldier(ctx,17,y+15,0,s.alive,false,false,0);
       text(s.name,30,y+4,11,s.alive?C.cream:'#786b59');
-      text(s.alive?(s.followId!==null&&s.followId!==undefined?'FOLLOW':s.path.length?'MOVING':'READY'):'FALLEN',30,y+18,8,s.alive?'#a1bb80':'#da6c58');
+      const activity=s.followId!==null&&s.followId!==undefined?'FOLLOW':s.path.length?'MOVE':'READY';
+      text(s.alive?shortRank(s.rank)+' '+activity:'KIA',30,y+18,8,s.alive?'#a1bb80':'#da6c58');
       text(s.alive?(split?s.team:'★'):'×',94,y+6,12,s.alive?(split&&s.team==='B'?'#83d1d8':C.sand):C.danger,'right');
     });
     text(split?'HOLD NAME: SWAP':'AMMO',8,171,split?8:9,C.mint);
@@ -1131,61 +1211,123 @@
     text(mode==='grenade'?'FRAG ARMED':'HOLD TO FIRE',HUD+9,CTRL_Y+19,9,C.gold);
     buttons();
   }
-  function shade(alpha=.70){ctx.fillStyle=`rgba(7,12,9,${alpha})`;ctx.fillRect(HUD,0,VW,VH);}
+  function shade(alpha=.70){ctx.fillStyle=`rgba(7,12,9,${alpha})`;ctx.fillRect(HUD,0,VW,WH);}
   function panel(x,y,w,h){rect(x,y,w,h,'#18241de8');stroke(x,y,w,h,'#9b9f61',2);rect(x+3,y+3,w-6,3,'#536b3f');}
-  let titleStart={x:0,y:0,w:0,h:0},missionTwoStart={x:0,y:0,w:0,h:0};
+  let titleStart={x:0,y:0,w:0,h:0},rosterStart={x:0,y:0,w:0,h:0};
+  let memorialStart={x:0,y:0,w:0,h:0},archiveBack={x:0,y:0,w:0,h:0};
   let resultStart={x:0,y:0,w:0,h:0},resultAlt={x:0,y:0,w:0,h:0};
+  function archiveLength(){return state==='memorial'?career.fallen.length:sortedPersonnel().length;}
+  function maxArchiveScroll(){return Math.max(0,archiveLength()*24-142);}
+  function showArchive(next){state=next;cancelGesture();archiveScroll=0;archiveFinger=null;}
   function drawTitle(){
-    shade(.80);
-    const x=HUD+VW/2;
-    text('A PIXEL TACTICS ORIGINAL',x,21,9,C.sand,'center');
-    text('GREEN',x,48,36,C.cream,'center');
-    text('DAWN',x,81,36,C.gold,'center');
-    rect(x-105,125,210,3,'#c6aa65');
-    text('SELECT OPERATION',x,139,12,C.mint,'center');
-    const bw=Math.min(234,VW-36),bh=33;
-    titleStart={x:x-bw/2,y:162,w:bw,h:bh};
-    missionTwoStart={x:x-bw/2,y:201,w:bw,h:bh};
-    button(titleStart.x,titleStart.y,bw,bh,
-      saved.completed.includes(1)?'01 JUNGLE ASSAULT  *':'01 JUNGLE ASSAULT','start',true);
-    button(missionTwoStart.x,missionTwoStart.y,bw,bh,
-      saved.completed.includes(2)?'02 DEPOT RAID  *':'02 DEPOT RAID  NEW','start',true);
-    text('TAP MOVE  /  HOLD FIRE  /  SPLIT SQUAD',x,241,8,'#c6d4a9','center');
+    shade(.84);
+    const x=HUD+VW/2,bw=Math.min(252,VW-36);
+    text('A PIXEL TACTICS ORIGINAL',x,13,9,C.sand,'center');
+    text('GREEN',x,37,34,C.cream,'center');
+    text('DAWN',x,74,34,C.gold,'center');
+    rect(x-105,112,210,3,'#c6aa65');
+    text('ONE WAY CAMPAIGN',x,124,11,C.mint,'center');
+    if(career.nextMission<=2){
+      text('MISSION '+String(career.nextMission).padStart(2,'0')+'  '+operationName(career.nextMission),x,144,10,C.cream,'center');
+      const deploying=deployment().length;
+      text(deploying+' DEPLOYING   '+Math.max(0,career.active.length-deploying)+' RESERVE',x,162,9,C.sand,'center');
+      titleStart={x:x-bw/2,y:181,w:bw,h:33};
+      button(titleStart.x,titleStart.y,bw,33,'DEPLOY NEXT OPERATION','start',true);
+      rosterStart={x:x-bw/2,y:223,w:(bw-8)/2,h:30};
+      memorialStart={x:x+4,y:223,w:(bw-8)/2,h:30};
+    }else{
+      text('TWO MISSIONS COMPLETE',x,146,12,C.gold,'center');
+      text('MISSION 03  -  COMING SOON',x,166,10,C.mint,'center');
+      titleStart={x:0,y:0,w:0,h:0};
+      rosterStart={x:x-bw/2,y:199,w:(bw-8)/2,h:34};
+      memorialStart={x:x+4,y:199,w:(bw-8)/2,h:34};
+    }
+    button(rosterStart.x,rosterStart.y,rosterStart.w,rosterStart.h,'BARRACKS','roster',false);
+    button(memorialStart.x,memorialStart.y,memorialStart.w,memorialStart.h,'MEMORIAL','memorial',false);
+    text('KIA '+career.fallen.length+'   /   OPERATIONS CLEARED '+career.victories.length,
+      x,264,8,'#b6c89f','center');
+  }
+  function drawArchive(){
+    shade(.91);
+    const x=HUD+VW/2,w=Math.min(VW-34,370),left=x-w/2;
+    panel(left,12,w,264);
+    const lost=state==='memorial';
+    text(lost?'LOST IN BATTLE':'THE BARRACKS',x,22,19,lost?'#dfb875':C.gold,'center');
+    text(lost?career.fallen.length+' SOLDIERS NEVER RETURNED':career.active.length+' SERVING SOLDIERS',
+      x,48,9,C.mint,'center');
+    rect(left+12,65,w-24,1,'#647451');
+    ctx.save();ctx.beginPath();ctx.rect(left+12,71,w-24,143);ctx.clip();
+    const entries=lost?career.fallen:sortedPersonnel();
+    if(!entries.length){
+      text(lost?'NO FALLEN SOLDIERS':'NO SOLDIERS IN RESERVE',x,123,11,C.cream,'center');
+      text(lost?'MAY THEY ALL RETURN SAFELY':'REINFORCEMENTS ON THE WAY',x,142,9,C.mint,'center');
+    }
+    entries.forEach((member,i)=>{
+      const y=76+i*24-archiveScroll;
+      if(y<48||y>230)return;
+      const rowLeft=left+21;
+      if(i%2===0)rect(left+16,y-2,w-32,21,'#34412c77');
+      if(lost){
+        text('+',rowLeft,y+1,14,'#b88d68');
+        text(shortRank(member.rank)+' '+member.name,rowLeft+20,y+1,11,C.cream);
+        text('OP '+String(member.mission).padStart(2,'0'),left+w-20,y+2,9,C.sand,'right');
+      }else{
+        text(shortRank(member.rank),rowLeft,y+1,11,C.sand);
+        text(member.name,rowLeft+44,y+1,11,C.cream);
+        text(member.missions+' OPS',left+w-20,y+2,9,C.mint,'right');
+      }
+    });
+    ctx.restore();
+    rect(left+12,218,w-24,1,'#647451');
+    text(lost?'SCROLL TO REMEMBER  /  SWIPE UP-DOWN':'SCROLL TO VIEW ALL RECRUITS',
+      x,224,8,'#aab895','center');
+    archiveBack={x:x-95,y:244,w:190,h:28};
+    button(archiveBack.x,archiveBack.y,archiveBack.w,archiveBack.h,'BACK TO CAMP','back',true);
   }
   function drawPause(){
     shade(.75);const x=HUD+VW/2;
     text('PAUSED',x,65,27,C.sand,'center');
     text('SQUAD HOLDING POSITION',x,105,10,C.cream,'center');
     const w=210;resultStart={x:x-w/2,y:149,w,h:43};
-    button(resultStart.x,resultStart.y,w,43,'►  RESUME MISSION','resume',true);
-    text('P = RESUME  ·  R = RESTART',x,208,10,'#b8c39c','center');
+    button(resultStart.x,resultStart.y,w,43,'RESUME MISSION','resume',true);
+    text('ESC = RESUME',x,208,10,'#b8c39c','center');
   }
   function drawEnd(won){
-    shade(.82);const x=HUD+VW/2;
-    text(won?'MISSION COMPLETE':'MISSION FAILED',x,27,won?24:25,won?C.gold:'#e78a6d','center');
-    text(won?(missionIndex===2?'DEPOT DESTROYED  /  SQUAD EXTRACTED':'RADIO BUNKER DESTROYED'):
-      'SQUAD LOST',x,65,10,C.cream,'center');
-    rect(x-127,84,254,2,'#71834f');
-    text('ROLL CALL',x,97,10,C.mint,'center');
+    shade(.86);const x=HUD+VW/2;
+    text(won?'MISSION COMPLETE':'SQUAD WIPED OUT',x,18,won?23:22,won?C.gold:'#e78a6d','center');
+    text(operationName(missionIndex),x,50,10,C.cream,'center');
+    rect(x-127,67,254,2,'#71834f');
+    text(won?'PROMOTIONS  /  ROLL CALL':'LOST IN ACTION',x,78,10,C.mint,'center');
     soldiers.forEach((s,i)=>{
-      text(`${s.name}  ${s.alive?'SURVIVED  ★':'KIA   ×'}`,x,115+i*16,11,s.alive?'#d9e4b3':'#d97f6a','center');
+      const y=97+i*18,old=afterAction.promotions.find(p=>p.name===s.name);
+      const label=s.alive?(won?shortRank(old?old.to:s.rank)+' '+s.name+'  +1 RANK':shortRank(s.rank)+' '+s.name+'  ALIVE'):
+        'KIA   '+s.name;
+      text(label,x,y,11,s.alive?C.cream:'#dc896e','center');
     });
-    text(`ENEMIES ${String(kills).padStart(2,'0')}    SCORE ${score}`,x,168,11,C.sand,'center');
-    const w=Math.min(222,VW-50);
-    resultStart={x:x-w/2,y:186,w,h:31};resultAlt={x:x-w/2,y:222,w,h:27};
-    const buttonText=won&&missionIndex===1?'NEXT: DEPOT RAID':won?'REPLAY MISSION':'TRY AGAIN';
-    button(resultStart.x,resultStart.y,w,31,buttonText,'retry',true);
-    button(resultAlt.x,resultAlt.y,w,27,'MISSION SELECT','title',false);
+    if(won){
+      text('+'+RECRUITS_PER_VICTORY+' NEW RECRUITS JOIN THE RESERVE',x,158,9,C.sand,'center');
+    }else{
+      text('FALLEN: '+afterAction.fallen.length+'  /  MEMORIAL UPDATED',x,158,9,C.sand,'center');
+    }
+    text('KILLS '+kills+'   SCORE '+score,x,175,10,C.mint,'center');
+    const w=Math.min(246,VW-40);
+    resultStart={x:x-w/2,y:197,w,h:33};
+    const label=won?(career.nextMission<=2?'NEXT: '+operationName(career.nextMission):'RETURN TO CAMP'):'REDEPLOY RECRUITS';
+    button(resultStart.x,resultStart.y,w,33,label,'next',true);
+    resultAlt={x:x-w/2,y:239,w,h:29};
+    button(resultAlt.x,resultAlt.y,w,29,'LOST IN BATTLE  /  MEMORIAL','memorial',false);
   }
   function draw(){
     rect(0,0,W,WH,'#141c15');
     if(terrain)drawWorld();
     drawHud();
-    drawControls();
+    if(state==='playing'||state==='paused')drawControls();
+    else rect(HUD,CTRL_Y,VW,WH-CTRL_Y,'#172119');
     if(state==='title')drawTitle();
     else if(state==='paused')drawPause();
     else if(state==='won')drawEnd(true);
     else if(state==='lost')drawEnd(false);
+    else if(state==='roster'||state==='memorial')drawArchive();
     // Border and small top HUD separators.
     rect(HUD-3,0,3,WH,'#101711');
     if(state==='playing'&&panHint>0){
@@ -1243,12 +1385,21 @@
     canvas.focus();audioInit();
     const p=where(e);Object.assign(pointer,p);pointer.down=true;
     try{canvas.setPointerCapture(e.pointerId);}catch(_){}
-    if(state==='title'){if(inside(p,titleStart))resetMission(1);
-      else if(inside(p,missionTwoStart))resetMission(2);return;}
+    if(state==='title'){
+      if(career.nextMission<=2&&inside(p,titleStart))resetMission();
+      else if(inside(p,rosterStart))showArchive('roster');
+      else if(inside(p,memorialStart))showArchive('memorial');
+      return;
+    }
+    if(state==='roster'||state==='memorial'){
+      if(inside(p,archiveBack)){archiveFinger=null;state='title';}
+      else if(p.y>=70&&p.y<=224)archiveFinger={id:e.pointerId,lastY:p.y};
+      return;
+    }
     if(state==='paused'){if(inside(p,resultStart))state='playing';return;}
     if(state==='won'||state==='lost'){
-      if(inside(p,resultStart)){const next=state==='won'&&missionIndex===1?2:missionIndex;resetMission(next);}
-      else if(inside(p,resultAlt)){cancelGesture();state='title';}
+      if(inside(p,resultStart)){if(state==='won'&&career.nextMission>2)state='title';else resetMission();}
+      else if(inside(p,resultAlt))showArchive('memorial');
       return;
     }
     if(p.x<HUD){
@@ -1276,6 +1427,11 @@
     if(gesture.firing){pointer.firePointer=e.pointerId;beginFire(p.wx,p.wy);}
   }
   function onPointerMove(e){
+    if(archiveFinger){
+      if(archiveFinger.id!==e.pointerId)return;
+      const p=where(e);archiveScroll=clamp(archiveScroll+archiveFinger.lastY-p.y,0,maxArchiveScroll());
+      archiveFinger.lastY=p.y;return;
+    }
     if(gesture&&e.pointerId!==gesture.id)return;
     const p=where(e);Object.assign(pointer,p);
     if(gesture&&state==='playing'){
@@ -1286,6 +1442,7 @@
     }
   }
   function onPointerUp(e){
+    if(archiveFinger){if(e.pointerId===archiveFinger.id)archiveFinger=null;return;}
     if((gesture&&e.pointerId!==gesture.id)||(hudPress&&e.pointerId!==hudPress.id))return;
     if(hudPress){
       const press=hudPress;hudPress=null;
@@ -1308,13 +1465,14 @@
   }
   function onKey(e){
     if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
-    if(e.code==='KeyR'){if(state!=='title'){resetMission();}return;}
+    if(e.code==='KeyR'){if(state==='playing'||state==='paused')resetMission();return;}
     if(e.code==='KeyP'||e.code==='Escape'){
       if(state==='playing'){state='paused';cancelGesture();}
       else if(state==='paused')state='playing';return;
     }
-    if(state==='title'&&(e.code==='Enter'||e.code==='Space')){audioInit();resetMission(1);return;}
-    if(state==='won'||state==='lost'){if(e.code==='Enter'||e.code==='Space'){audioInit();resetMission(state==='won'&&missionIndex===1?2:missionIndex);}return;}
+    if(state==='title'&&(e.code==='Enter'||e.code==='Space')){if(career.nextMission<=2){audioInit();resetMission();}return;}
+    if((state==='roster'||state==='memorial')&&e.code==='Escape'){state='title';return;}
+    if(state==='won'||state==='lost'){if(e.code==='Enter'||e.code==='Space'){audioInit();if(state==='won'&&career.nextMission>2)state='title';else resetMission();}return;}
     if(state!=='playing')return;
     if(e.code==='Digit0')chooseSquad(-1);
     if(e.code==='KeyX')toggleSplit();
@@ -1328,6 +1486,10 @@
   }
   let last=performance.now();
   function tick(t){const dt=clamp((t-last)/1000,0,.04);last=t;timeNow=t;
+    if(state==='memorial'&&!archiveFinger&&maxArchiveScroll()>0){
+      archiveScroll+=dt*9;
+      if(archiveScroll>maxArchiveScroll()+16)archiveScroll=0;
+    }
     if(state==='playing'&&hudPress&&!hudPress.done&&split&&t-hudPress.started>=520){
       hudPress.done=true;transferSoldier(hudPress.soldier);
     }
@@ -1354,15 +1516,18 @@
   document.addEventListener('visibilitychange',()=>{if(document.hidden)pauseForBackground();});
   window.addEventListener('pagehide',pauseForBackground);
   window.addEventListener('green-dawn-pause',pauseForBackground);
-  loadSave();resize();generateTerrain();
-  soldiers=[{name:'JAX',x:111,y:573,alive:true,team:'A',path:[],face:-.6,id:0},{name:'ACE',x:95,y:592,alive:true,team:'A',path:[],face:-.6,id:1},{name:'PIP',x:120,y:604,alive:true,team:'A',path:[],face:-.6,id:2}];
+  loadSave();missionIndex=Math.min(2,career.nextMission);resize();generateTerrain();
+  soldiers=deployment().map((m,i)=>({name:m.name,rank:m.rank,careerId:m.id,x:111+i*9,y:573+i*11,
+    alive:true,team:'A',path:[],face:-.6,id:i}));
   enemies=[];bunker={x:871,y:119,w:67,h:53,hp:8,maxHp:8,dead:false};ammo={x:461,y:371,taken:false};
   cam={x:0,y:MH-VH};
   // Expose a tiny read-only test surface to catch playability regressions.
   Object.defineProperty(window,'GREEN_DAWN_TEST',{value:{
-    get status(){return {state,mission:missionIndex,mode,score,kills,grenades,alive:soldiers.filter(s=>s.alive).length,enemyCount:enemies.filter(e=>e.alive).length,bunkerHp:bunker.hp,bunkerDead:bunker.dead,extraction:{...extraction},completed:[...saved.completed],camera:{...cam},time:clock};},
+    get status(){return {state,mission:missionIndex,nextMission:career.nextMission,mode,score,kills,grenades,alive:soldiers.filter(s=>s.alive).length,enemyCount:enemies.filter(e=>e.alive).length,bunkerHp:bunker.hp,bunkerDead:bunker.dead,extraction:{...extraction},completed:career.victories.map(v=>v.mission),camera:{...cam},time:clock};},
     get controls(){return {pending:!!(gesture&&!gesture.firing),firing:!!(gesture&&gesture.firing),shotsFired:playerShots,aim:{...aim},holdMs:HOLD_TO_FIRE_MS};},
-    get roster(){return soldiers.map(s=>({name:s.name,x:s.x,y:s.y,alive:s.alive,team:s.team,followId:s.followId??null,followGap:s.followGap||0,trailPoints:s.trail?.length||0,followGoal:s.followGoal||null,pathLength:s.path.length,destination:s.path.at(-1)||null}));},
+    get roster(){return soldiers.map(s=>({name:s.name,careerId:s.careerId,rank:s.rank,x:s.x,y:s.y,alive:s.alive,team:s.team,followId:s.followId??null,followGap:s.followGap||0,trailPoints:s.trail?.length||0,followGoal:s.followGoal||null,pathLength:s.path.length,destination:s.path.at(-1)||null}));},
+    get career(){return JSON.parse(JSON.stringify(career));},
+    get afterAction(){return JSON.parse(JSON.stringify(afterAction));},
     get squads(){return {split,selected,alpha:soldiers.filter(s=>s.alive&&s.team==='A').map(s=>s.name),bravo:soldiers.filter(s=>s.alive&&s.team==='B').map(s=>s.name)};},
     get enemyAI(){return enemies.map(e=>({id:e.id,alive:e.alive,x:e.x,y:e.y,tactic:e.tactic,
       alert:e.alert,suppressed:e.suppressed,coverTime:e.coverTime,coverPath:e.coverPath.length}));},
@@ -1373,10 +1538,12 @@
     commandMove:(x,y,leadId)=>moveSquad(x,y,leadId),
     commandFire:(x,y)=>{beginFire(x,y);fireUntil=clock+2.5;},
     commandGrenade:(x,y)=>throwGrenade(x,y),
-    start:(level=1)=>resetMission(level),
+    start:()=>resetMission(),
     select:(id)=>chooseSquad(id),
     setMode:(id)=>setMode(id),
-    missionSelect:()=>{cancelGesture();state='title';},
+    goToCamp:()=>{cancelGesture();state='title';},
+    showMemorial:()=>showArchive('memorial'),
+    showRoster:()=>showArchive('roster'),
     get walkable(){return mapData.filter(Boolean).length;},
     path:(ax,ay,bx,by)=>pathfind(ax,ay,bx,by)
   }});

@@ -69,13 +69,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Mission01-v0.7-debug.apk
-          if gh release view v0.7.0 >/dev/null 2>&1; then
-            gh release upload v0.7.0 GreenDawn-Mission01-v0.7-debug.apk --clobber
+          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Campaign-v0.8-debug.apk
+          if gh release view v0.8.0 >/dev/null 2>&1; then
+            gh release upload v0.8.0 GreenDawn-Campaign-v0.8-debug.apk --clobber
           else
-            gh release create v0.7.0 GreenDawn-Mission01-v0.7-debug.apk \
+            gh release create v0.8.0 GreenDawn-Campaign-v0.8-debug.apk \
               --target "$GITHUB_SHA" \
-              --title "Green Dawn v0.7.0 — Android test build" \
-              --notes "Green Dawn v0.7 adds Mission 02: Depot Raid. Start on the opposite side of a newly generated jungle map, cross the river, destroy the enemy supply depot, and reach extraction. Replay Mission 01 from the new mission selection screen. Original tap-to-move, hold-to-fire, Alpha/Bravo split squads and formation systems retained." \
+              --title "Green Dawn v0.8.0 — Android test build" \
+              --notes "Green Dawn v0.8 adds the one-way soldier career campaign: start with three recruits, surviving soldiers earn a new rank at the end of each completed mission, two fresh recruits join reserves after every victory, fallen soldiers are permanently recorded in a scrolling Lost in Battle memorial, and the barracks shows ranks and missions survived. No replay or level selection: advance from Mission 01 to Mission 02. Mission 03 is not built yet. This is a debug test APK; reinstalling after uninstall clears local save data." \
               --prerelease
           fi
