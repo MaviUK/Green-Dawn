@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121d1a">
+<title>Green Dawn — The Road to Berlin</title>
+<meta name="description" content="Green Dawn historical campaign: 100 missions organised into real British Army WWII battle regions, with an alternate-history finale.">
+<style>
+*{box-sizing:border-box}
+:root{color-scheme:dark;--bg:#111a19;--pane:#1a2a27;--pane2:#24362d;--edge:#586852;--ink:#f2e6c9;--faint:#bbc7af;--gold:#ecc978;--green:#b4d6a1;--red:#d89681}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:"Courier New",monospace;background:var(--bg);color:var(--ink);overflow-x:hidden}
+button,a{font:inherit}button{cursor:pointer}
+a{color:inherit}
+header{position:sticky;z-index:5;top:0;padding:13px clamp(14px,3vw,32px);background:#101a17f5;border-bottom:3px solid #b1945d;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.brand{display:flex;align-items:center;gap:12px}
+.brandmark{width:37px;height:37px;display:grid;place-items:center;color:#13221b;background:var(--gold);box-shadow:inset 0 0 0 4px #8c774c;clip-path:polygon(12% 0,88% 0,100% 12%,100% 88%,88% 100%,12% 100%,0 88%,0 12%)}
+.brand strong{font-size:16px;display:block;letter-spacing:2px}
+.brand span{font-size:9px;color:var(--faint);letter-spacing:1px}
+header>a{font-size:10px;text-decoration:none;color:var(--gold);border:1px solid #8b815e;padding:10px 12px;white-space:nowrap}
+header>a:hover,header>a:focus-visible{background:#4b5437}
+main{max-width:1230px;margin:auto;padding:22px clamp(12px,2.7vw,30px)}
+.hero{background:radial-gradient(ellipse at 85% 15%,#364939,#1b2e28 55%,#16221f);border:2px solid #6a795d;padding:clamp(17px,3vw,30px);position:relative;overflow:hidden}
+.hero:after{content:"";position:absolute;right:-8px;bottom:-37px;width:185px;height:172px;opacity:.13;transform:rotate(-18deg);background:linear-gradient(150deg,transparent 30%,#d8ca91 30% 36%,transparent 36%),linear-gradient(25deg,transparent 50%,#d8ca91 50% 56%,transparent 56%);pointer-events:none}
+.eyebrow{font-size:10px;color:var(--gold);letter-spacing:2px;margin:0 0 10px}
+h1{font-size:clamp(25px,4.6vw,46px);margin:0 0 9px;letter-spacing:-1px;line-height:1.04}
+.hero p:not(.eyebrow){font-size:12px;line-height:1.65;color:var(--faint);max-width:760px;margin:0 0 18px}
+.progress{max-width:530px;display:flex;align-items:center;gap:12px}
+.bar{height:10px;border:1px solid #789075;background:#0d1512;flex:1;padding:2px}
+.fill{height:100%;background:#ecc978;width:0}
+#progressText{font-size:11px;white-space:nowrap;color:var(--gold)}
+.layout{display:grid;grid-template-columns:minmax(225px,320px) minmax(0,1fr);gap:16px;margin-top:17px;align-items:start}
+aside,.details{border:1px solid #4b6254;background:#16231e}
+aside{max-height:calc(100vh - 102px);overflow:auto;position:sticky;top:83px}
+.sideHead{position:sticky;top:0;background:#28382d;border-bottom:2px solid #6b7754;padding:13px;color:var(--gold);letter-spacing:2px;font-size:11px;z-index:1}
+.campaign{width:100%;display:flex;align-items:center;gap:11px;border:0;border-bottom:1px solid #304239;padding:12px 11px;background:transparent;color:#e3e9d6;text-align:left;min-height:58px}
+.campaign:focus-visible,.campaign:hover{background:#293d32}
+.campaign[aria-selected="true"]{background:#354a37;box-shadow:inset 4px 0 var(--gold)}
+.campaign .id{min-width:34px;height:34px;border:1px solid #75805e;display:grid;place-items:center;color:var(--gold);font-size:13px}
+.campaign b{font-size:11px;display:block;margin-bottom:5px;line-height:1.2}
+.campaign small{font-size:9px;color:#bdc7ae;line-height:1.3}
+.details{padding:clamp(13px,2.5vw,25px)}
+.flag{color:#ddb877;font-size:10px;letter-spacing:1px}
+.info h2{font-size:clamp(18px,2.6vw,30px);margin:8px 0 8px;line-height:1.15}
+.info p{font-size:12px;line-height:1.6;color:#bccab9;margin:0 0 15px}
+.acttag{display:inline-block;padding:6px 10px;font-size:9px;background:#354332;color:#d6d7b0}
+.missions{display:grid;gap:9px}
+.mission{border:1px solid #43594b;background:#203026;display:grid;grid-template-columns:50px 1fr auto;align-items:center;gap:10px;padding:13px 12px;min-height:77px}
+.mission.major{border-color:#998251;background:#30362b}
+.mission.ready{border-color:#bb9b60;background:#303d30}
+.mission .num{font-size:22px;font-weight:bold;color:#7f9c84;letter-spacing:-1px}
+.mission.major .num,.mission.ready .num{color:var(--gold)}
+.mission h3{font-size:13px;margin:0 0 6px}
+.mission p{font-size:10px;color:#b8c7b6;line-height:1.4;margin:0}
+.mission .status{display:block;font-size:9px;color:#d4bd88;margin-top:6px;letter-spacing:1px}
+.mission .missionLink,.disabledLink{border:1px solid #aa9a68;padding:10px 12px;font-size:10px;text-decoration:none;white-space:nowrap;text-align:center}
+.missionLink{background:#ba9855;color:#172219;font-weight:bold}
+.missionLink:hover,.missionLink:focus-visible{background:#e3c575}
+.disabledLink{background:#23302b;color:#88998a;border-color:#566b59}
+.note{margin-top:18px;border-left:4px solid #b39a63;padding:14px;background:#26372c;font-size:11px;color:#c6d5c4;line-height:1.65}
+.note b{color:#f3da9f}
+.footer{text-align:center;font-size:10px;color:#9cab98;padding:22px 6px}
+@media(max-width:780px){.layout{grid-template-columns:1fr}aside{position:relative;top:0;max-height:180px}.details{padding:13px}.mission{grid-template-columns:40px 1fr auto;padding:11px 8px;gap:8px}.mission p{font-size:10px}.mission .missionLink,.disabledLink{padding:8px 7px;font-size:9px}}
+@media(max-width:450px){.brand strong{font-size:12px}.brand span{font-size:8px}header{padding:10px}.brandmark{width:28px;height:28px}.mission{grid-template-columns:34px 1fr}.mission .num{font-size:17px}.mission .missionLink,.disabledLink{grid-column:2;justify-self:start} .mission h3{font-size:12px}}
+</style>
+</head>
+<body>
+<header>
+<div class="brand"><div class="brandmark" aria-hidden="true">★</div><div><strong>GREEN DAWN</strong><span>THE ROAD TO BERLIN / 1940–1945</span></div></div>
+<a href="index.html">JUNGLE CAMPAIGN</a>
+</header>
+<main>
+<section class="hero">
+<p class="eyebrow">BRITISH ARMY-INSPIRED CAMPAIGN / OPERATION ARCHIVE</p>
+<h1>100 MISSIONS.<br>ONE LONG WAR.</h1>
+<p>From frozen Norway to Germany, command a fictional British squad through real WWII battle settings. Each theatre has five linked operations and a longer final battle. Missions 97–100 are explicitly alternate history. Your jungle campaign and its saved soldiers remain separate.</p>
+<div class="progress"><div class="bar" aria-hidden="true"><div class="fill" id="fill"></div></div><span id="progressText">0 / 100 CLEARED</span></div>
+</section>
+<div class="layout">
+<aside aria-label="Battle theatres"><div class="sideHead">SELECT BATTLE THEATRE</div><nav id="campaigns"></nav></aside>
+<section class="details" id="details">
+<div class="info"><div class="flag" id="place"></div><h2 id="campaignTitle"></h2><p id="campaignDescription"></p><span class="acttag" id="act"></span></div>
+<div id="missions" class="missions" style="margin-top:15px"></div>
+<div class="note"><b>DEVELOPMENT STATUS:</b> Only mission 001 — Cold Landing — is playable in this release. All 100 missions have their planned locations and objectives, but the remaining missions are locked until their gameplay is built. Completing a battle is permanent; no level replay. A later Berlin ending is fictional, not a claim about history.</div>
+</section>
+</div>
+<div class="footer">ORIGINAL RETRO PIXEL GAME · OFFLINE MAP · NO ACCOUNTS OR ADVERTISING</div>
+</main>
+<script src="ww2-campaign-data.js"></script>
+<script>
+(function(){
+ 'use strict';
+ const game=window.GREEN_DAWN_WW2;
+ if(!game||game.missions.length!==100)throw Error('Campaign catalogue unavailable');
+ let career={nextMission:1,victories:[],active:[],fallen:[]};
+ try{
+   const parsed=JSON.parse(localStorage.getItem(game.saveKey)||'null');
+   if(parsed&&Array.isArray(parsed.victories)){
+     const completed=new Set(parsed.victories.map(v=>v.mission));
+     career={...career,...parsed,nextMission:1};
+     while(completed.has(career.nextMission)&&career.nextMission<=100)career.nextMission++;
+   }
+ }catch(_){}
+ const cleared=career.victories.filter(v=>Number.isInteger(v.mission)&&v.mission>=1&&v.mission<=100).length;
+ document.getElementById('progressText').textContent=cleared+' / 100 CLEARED';
+ document.getElementById('fill').style.width=(Math.min(100,cleared))+'%';
+ const nav=document.getElementById('campaigns');
+ const missionList=document.getElementById('missions');
+ let selectedIndex=Math.min(game.campaigns.length-1,Math.floor(Math.max(0,career.nextMission-1)/6));
+ function node(tag,cls,value){
+   const el=document.createElement(tag);
+   if(cls)el.className=cls;
+   if(value!=null)el.textContent=String(value);
+   return el;
+ }
+ function select(index){
+   selectedIndex=index;
+   Array.from(nav.children).forEach((b,j)=>b.setAttribute('aria-selected',String(j===index)));
+   const chapter=game.campaigns[index];
+   document.getElementById('place').textContent=chapter.country.toUpperCase()+' / '+chapter.period+' / LEVELS '+String(chapter.first).padStart(3,'0')+'–'+String(chapter.last).padStart(3,'0');
+   document.getElementById('campaignTitle').textContent=chapter.name;
+   document.getElementById('campaignDescription').textContent=index===16?'The fictional alternate-history endgame: four connected operations on the road to Berlin.':
+      'Five smaller operations contribute to a major battle at the end of this theatre. Each completed mission permanently advances your squad.';
+   document.getElementById('act').textContent=chapter.act;
+   missionList.replaceChildren();
+   for(const m of chapter.missions){
+     const done=m.number<career.nextMission;
+     const ready=m.number===career.nextMission&&m.number<=game.available;
+     const row=node('article','mission'+(m.final?' major':'')+(ready?' ready':''));
+     row.appendChild(node('span','num',String(m.number).padStart(3,'0')));
+     const copy=node('div','copy');
+     copy.appendChild(node('h3',null,m.title));
+     copy.appendChild(node('p',null,m.objective));
+     copy.appendChild(node('small','status',done?'✓ OPERATION CLEARED':ready?'● READY TO DEPLOY':m.final?'◆ MAJOR BATTLE — PLANNED':'○ NOT YET AVAILABLE'));
+     row.appendChild(copy);
+     if(ready){
+       const a=node('a','missionLink','DEPLOY');
+       a.href='index.html?campaign=ww2';
+       a.setAttribute('aria-label','Play mission '+m.number+': '+m.title);
+       row.appendChild(a);
+     }else{
+       const button=node('span','disabledLink',done?'CLEARED':m.number===career.nextMission?'NEXT':'LOCKED');
+       row.appendChild(button);
+     }
+     missionList.appendChild(row);
+   }
+ }
+ game.campaigns.forEach((c,i)=>{
+   const b=node('button','campaign');b.type='button';
+   const index=node('span','id',String(c.id).padStart(2,'0'));
+   const body=node('span');
+   body.appendChild(node('b',null,c.name));
+   body.appendChild(node('small',null,c.country+' · '+c.period));
+   b.appendChild(index);b.appendChild(body);
+   b.addEventListener('click',()=>select(i));
+   nav.appendChild(b);
+ });
+ select(selectedIndex);
+ window.addEventListener('keydown',e=>{if(e.key==='Escape')window.location.href='index.html';});
+})();
+</script>
+</body>
+</html>

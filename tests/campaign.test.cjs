@@ -44,13 +44,14 @@ function fakeCanvas(){
     addEventListener(){},focus(){},setPointerCapture(){},
     getBoundingClientRect(){return {left:0,top:0,width:512,height:288};}};
 }
-function boot(save){
+function boot(save,ww2=false){
   const gameCanvas=fakeCanvas();
-  const storage=new Map([['green-dawn-campaign-v1',JSON.stringify(save)]]);
+  const storage=new Map([['green-dawn-campaign-v1',JSON.stringify(ww2?saveAfter(2):save)]]);
+  if(ww2&&save!=null)storage.set('green-dawn-ww2-campaign-v1',JSON.stringify(save));
   const native={exports:[],importCalls:0};
   const window={
     innerWidth:1024,innerHeight:576,addEventListener(){},
-    reloadCount:0,location:{reload(){window.reloadCount++;}},
+    reloadCount:0,location:{search:ww2?'?campaign=ww2':'',reload(){window.reloadCount++;}},
     GreenDawnAndroid:{
       exportSave(content){native.exports.push(content);},
       importSave(){native.importCalls++;}
@@ -184,7 +185,7 @@ test('Samsung backup exports a complete versioned career and memorial file',()=>
   const file=JSON.parse(native.exports[0]);
   assert.equal(file.format,'GREEN_DAWN_SAVE');
   assert.equal(file.version,1);
-  assert.equal(file.gameVersion,'0.12.0');
+  assert.equal(file.gameVersion,'0.13.0');
   assert.equal(file.career.active.length,3);
   assert.equal(file.career.fallen.length,1);
   assert.equal(file.career.victories.length,2);
@@ -267,4 +268,93 @@ test('Restoring an interrupted memorial preserves only the new mission casualtie
   assert.equal(resumed.api.ceremony.displayed.length,1);
   assert.equal(resumed.api.ceremony.displayed[0].id,'r5');
   assert.equal(resumed.api.career.fallen.length,2,'historical casualties must persist');
+});
+
+
+test('100 WWII operations are grouped into 16 six-mission historical campaigns plus Berlin',()=>{
+  const catalogue=fs.readFileSync(path.join(__dirname,'../ww2-campaign-data.js'),'utf8');
+  const bundledCatalogue=fs.readFileSync(path.join(__dirname,'../android/app/src/main/assets/ww2-campaign-data.js'),'utf8');
+  const map=fs.readFileSync(path.join(__dirname,'../ww2-campaign.html'),'utf8');
+  const bundledMap=fs.readFileSync(path.join(__dirname,'../android/app/src/main/assets/ww2-campaign.html'),'utf8');
+  assert.equal(catalogue,bundledCatalogue);
+  assert.equal(map,bundledMap);
+  assert.ok(map.includes('ww2-campaign-data.js'));
+  assert.ok(map.includes('index.html?campaign=ww2'));
+  const sandbox={window:{}};
+  vm.runInNewContext(catalogue,sandbox,{timeout:3000});
+  const data=sandbox.window.GREEN_DAWN_WW2;
+  assert.equal(data.campaigns.length,17);
+  assert.equal(data.missions.length,100);
+  assert.equal(data.available,1);
+  assert.equal(data.campaigns[0].country,'Norway');
+  assert.equal(data.campaigns[15].last,96);
+  assert.equal(data.campaigns[16].first,97);
+  assert.equal(data.missions[99].number,100);
+  assert.match(data.missions[99].title,/End of the Reich/);
+  assert.ok(data.campaigns.slice(0,16).every(c=>c.missions.length===6));
+  assert.ok(data.campaigns.slice(0,16).every(c=>c.missions[5].final===true));
+  assert.ok(data.missions.every(m=>m.objective.length>10));
+  assert.ok(data.missions.slice(96).every(m=>!m.historical));
+});
+
+test('WWII career is independent of the completed jungle campaign and starts in Norway',()=>{
+  const {api,qa,storage}=boot(null,true);
+  assert.equal(api.status.campaign,'ww2');
+  assert.equal(api.status.plannedMissions,100);
+  assert.equal(api.status.availableMissions,1);
+  assert.equal(api.status.nextMission,1);
+  assert.equal(api.career.active[0].name,'JACK');
+  assert.equal(api.career.active[1].name,'TOM');
+  assert.equal(api.career.active[2].name,'ALF');
+  const originalJungle=storage.get('green-dawn-campaign-v1');
+  api.start();
+  assert.equal(api.status.state,'playing');
+  assert.equal(api.status.objectiveKind,'coastal');
+  assert.equal(api.status.enemyCount,9);
+  assert.equal(api.status.extraction.x,797);
+  assert.ok(api.path(101,572,578,326).length>0,'first snow route crosses towards the bridge');
+  assert.ok(api.path(712,285,797,219).length>0,'landing zone reachable across the stream');
+  qa.destroyObjective();
+  assert.equal(api.status.state,'playing','destroying coastal gun must not win automatically');
+  qa.evacOne();qa.step();
+  assert.equal(api.status.state,'honours');
+  assert.equal(api.status.nextMission,2);
+  assert.deepEqual(Array.from(api.status.completed),[1]);
+  assert.equal(storage.get('green-dawn-campaign-v1'),originalJungle,
+    'WWII progress must not write to jungle storage');
+  qa.leave();
+  api.start();
+  assert.equal(api.status.state,'title','cannot replay cleared mission 01');
+});
+
+test('WWII and jungle backup formats cannot overwrite each other',()=>{
+  const ww2=boot(null,true);
+  const jungle=boot(saveAfter(1),false);
+  ww2.qa.openBackup();ww2.qa.exportBackup();
+  const ww2Backup=ww2.native.exports[0];
+  assert.equal(JSON.parse(ww2Backup).format,'GREEN_DAWN_WW2_SAVE');
+  jungle.qa.openBackup();
+  const beforeJungle=jungle.storage.get('green-dawn-campaign-v1');
+  jungle.qa.receiveBackup(ww2Backup);
+  assert.equal(jungle.api.status.state,'backup');
+  assert.equal(jungle.storage.get('green-dawn-campaign-v1'),beforeJungle);
+  jungle.qa.exportBackup();
+  const jungleBackup=jungle.native.exports[0];
+  const beforeWw2=ww2.storage.get('green-dawn-ww2-campaign-v1');
+  ww2.qa.receiveBackup(jungleBackup);
+  assert.equal(ww2.api.status.state,'backup');
+  assert.equal(ww2.storage.get('green-dawn-ww2-campaign-v1'),beforeWw2);
+});
+
+test('WWII memorial still shows only soldiers killed during the current operation',()=>{
+  const {api,qa}=boot(null,true);
+  api.start();qa.killFirst();qa.destroyObjective();qa.evacOne();qa.step();
+  assert.equal(api.status.state,'honours');
+  assert.equal(api.ceremony.missionOnly,true);
+  assert.equal(api.ceremony.displayed.length,1);
+  assert.equal(api.ceremony.displayed[0].mission,1);
+  assert.equal(api.career.fallen.length,1);
+  qa.leave();qa.camp();api.showMemorial();
+  assert.equal(api.ceremony.missionOnly,false);
+  assert.equal(api.ceremony.displayed.length,1);
 });

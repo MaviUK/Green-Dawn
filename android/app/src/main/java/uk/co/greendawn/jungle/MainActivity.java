@@ -122,7 +122,9 @@ public final class MainActivity extends Activity {
                     picker.addCategory(Intent.CATEGORY_OPENABLE);
                     picker.setType("application/json");
                     String date = new SimpleDateFormat("yyyyMMdd-HHmm",Locale.UK).format(new Date());
-                    picker.putExtra(Intent.EXTRA_TITLE,"GreenDawn-" + date + ".json");
+                    boolean worldWar = content.contains("\"format\": \"GREEN_DAWN_WW2_SAVE\"");
+                    picker.putExtra(Intent.EXTRA_TITLE,
+                        (worldWar ? "GreenDawn-WW2-" : "GreenDawn-") + date + ".json");
                     startActivityForResult(picker,PICK_EXPORT);
                 } catch (Exception e) {
                     pendingExport = null;

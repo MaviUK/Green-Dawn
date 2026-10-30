@@ -1,46 +1,51 @@
-# GREEN DAWN v0.12 — Campaign Save Backup
+# GREEN DAWN v0.13 — The Road to Berlin
 
-Original 16-bit-inspired offline jungle-squad tactics for Android. Three playable missions, permanent recruits, promotions, permanent losses, Alpha/Bravo split squads, the per-mission ceremony and separate historical memorial. No level selection or replay menu.
+Original 16-bit-inspired offline Android squad tactics with **two separate campaigns**:
 
-## Download
+- **Jungle prototype campaign:** Jungle Assault, Depot Raid and Radar Blackout, all playable exactly as before. The existing three-mission career, soldiers, memorials and backup format remain untouched.
+- **WWII campaign:** a complete planned **100-mission** route through the British Army's real WWII theatres, with original fictional small-unit operations and a clearly fictional alternate-history Berlin finale. Mission 001, **Cold Landing — Norway, 1940**, is now playable. The other 99 missions are visible on the map but NOT yet playable.
 
-**[Direct Android APK v0.12](https://github.com/MaviUK/Green-Dawn/releases/download/v0.12.0/GreenDawn-Campaign-v0.12-debug.apk)**
+## Install v0.13
 
-Open in Chrome on your Samsung, then tap the APK in My Files → Downloads. This is an experimental debug APK.
+**[Direct Android APK](https://github.com/MaviUK/Green-Dawn/releases/download/v0.13.0/GreenDawn-Campaign-v0.13-debug.apk)**
 
-**IMPORTANT — v0.11 save warning:** GitHub's temporary debug certificate can change from one APK to the next. If Android says the v0.12 APK cannot install over v0.11, do **not** uninstall the old app if you need its progress. Uninstalling v0.11 erases its private save. The v0.12 export function cannot recover a v0.11 save *after* uninstall. Persistent signing is prepared but has not been configured with a private key.
+Open the link on your Android phone in Chrome; find the APK in My Files → Downloads and install.
 
-## New: Save Data at camp
+**Save warning:** The new historical campaign uses a different local save key from the jungle game, but APK upgrades still require compatible Android signing. If Android asks you to uninstall a previous build, **do not uninstall it if you care about its existing saves**: uninstalling deletes local soldier ranks and the memorial. Stable signing is not yet configured without your private GitHub Actions keystore secrets. Downloading v0.13 alone is safe.
 
-The camp menu now offers **BARRACKS / MEMORIAL / SAVE DATA**.
+## WWII campaign map
 
-1. Choose **SAVE DATA → EXPORT SAVE FILE**. Android's system Files picker asks where to store a portable **GreenDawn-YYYYMMDD-HHmm.json** file. Keep it in Downloads, another folder, or a cloud-backed destination. No storage permission or Internet access is required by the game.
-2. To recover a backup, choose **SAVE DATA → IMPORT SAVE FILE**, select that JSON file in Android Files, and inspect the confirmation screen showing the imported campaign and roster.
-3. **CONFIRM REPLACE SAVE** is the only action that replaces existing data. Import cancellation, corrupt files and unsupported versions do not write to saved progress. After confirmation, the game reloads to the appropriate campaign state.
+At the jungle camp select **WWII WAR MAP / 100 MISSIONS**. The map shows all 17 campaign regions and 100 operations with objectives:
 
-Backups contain soldiers' ranks and names, all fallen heroes, operation victories, next mission, best score, settings and an unfinished post-mission memorial if present. They do **not** contain an in-progress battlefield snapshot: the game already saves careers, not mid-battle positions. Backups are JSON files you control, not online accounts.
+1. Norway, Dunkirk, Operation Compass, Greece/Crete — levels 01–24.
+2. Tobruk, Gazala, El Alamein, Tunisia — levels 25–48.
+3. Sicily, Salerno, Monte Cassino — levels 49–66.
+4. D-Day, Normandy breakout — levels 67–78.
+5. Arnhem, Scheldt, Rhine crossing — levels 79–96.
+6. Berlin alternate-history finale — levels 97–100.
 
-### Browser version
+Each historical campaign contains five linked missions followed by a sixth, longer major battle. Berlin has four special finale missions. These are **future gameplay designs, not finished maps**. You can browse any region, but only the first playable mission can be entered.
 
-The same menu supports JSON download/upload in a browser that permits local downloads. The offline Android APK uses Android's built-in secure document picker.
+**Historical approach:** the locations, chronology and major campaign outcomes come from WWII history, while each small squad operation is fictional. Losses like Dunkirk and Arnhem are portrayed as defence and evacuation objectives. The final four Berlin missions deliberately change history: Soviet forces captured Berlin and Hitler killed himself historically; the game's British-squad assassination is expressly a fictional alternate-history conclusion.
 
-## Persistent signing — preparation only
+## Playable: Mission 001 — Cold Landing
 
-Android APK upgrades require the **same signing certificate** across builds. The workflow supports a persistent keystore supplied via these repository Actions secrets:
+An original Norwegian snowfield beside an icy fjord. A three-man British squad lands by a small pier, moves through snow-covered firs, crosses a timber bridge and approaches a hardened coastal gun. **Destroy the coastal gun, then move a surviving soldier to the landing-zone marker** to secure the Allied foothold. Destroying the gun alone does not complete the level. Enemy guards use the existing hearing, patrol and cover mechanics.
 
-- GREEN_DAWN_KEYSTORE_B64
-- GREEN_DAWN_KEYSTORE_PASSWORD
-- GREEN_DAWN_KEY_ALIAS
-- GREEN_DAWN_KEY_PASSWORD
+Complete Mission 001 once to preserve its promotions, recruit reinforcements and casualties. Mission 002 becomes the next planned operation and remains locked until implemented; completed missions cannot be replayed.
 
-Do not commit the keystore or passwords. If no signing secrets are configured, builds continue with temporary debug signing and the workflow emits a warning. Stable signing can protect **future** updates once configured; it cannot retroactively match the unknown temporary key used for v0.11.
+## Separate records and backups
 
-## Existing game
+- Jungle careers are still stored at green-dawn-campaign-v1.
+- WWII careers are stored at green-dawn-ww2-campaign-v1.
+- Each mode has its own barracks, memorial and Save Data screen.
+- The separate backup file formats prevent accidental restoration of a WWII career into the jungle campaign or vice versa.
+- The native Android backup system still exports and imports portable JSON via the phone's system file picker with explicit confirmation.
 
-Mission 01: Jungle Assault → Mission 02: Depot Raid → Mission 03: Radar Blackout, with its counterattack and extraction phase. Each mission can be completed only once. Surviving soldiers gain promotion and fresh recruits join after victory; fallen soldiers never return. The ceremony shows only losses from the most recent operation, using pixel military insignia. Camp's historical Memorial retains all fallen from the campaign.
+In battle, tap to move; hold to shoot; drag to aim; release to stop. FRAG, split/join squads and pause remain functional.
 
-Controls: tap to move, hold to shoot, drag to aim, release to stop, SPLIT / JOIN Alpha and Bravo, tap FRAG to throw a grenade. The game retains its original pixel-art terrain and synthesized effects.
+## Code and validation
 
-## Engineering
+Browser entry: index.html. Historical catalogue and map: ww2-campaign-data.js and ww2-campaign.html. Android bundles identical offline copies of these three assets. The Android WebView serves pages locally without Internet permission, and GitHub Actions runs automated tests, compiles and signature-checks an APK, and publishes a versioned GitHub Release.
 
-The standalone game is index.html, identically bundled in android/app/src/main/assets/index.html. Android package: uk.co.greendawn.jungle, min Android 8, v0.12.0. GitHub Actions runs campaign and backup regression tests, builds and verifies the APK signature, and publishes a GitHub Release. No analytics, ads, accounts or Internet permission.
+Android ID: uk.co.greendawn.jungle; version 0.13.0; min Android 8.0. No advertising, analytics or online account.

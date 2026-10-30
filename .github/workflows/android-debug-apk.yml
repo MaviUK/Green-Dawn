@@ -6,6 +6,8 @@ on:
     paths:
       - 'android/**'
       - 'index.html'
+      - 'ww2-campaign.html'
+      - 'ww2-campaign-data.js'
       - 'tests/**'
       - '.github/workflows/android-debug-apk.yml'
   workflow_dispatch:
@@ -24,6 +26,8 @@ jobs:
           test -f index.html
           test -f android/app/src/main/assets/index.html
           cmp index.html android/app/src/main/assets/index.html
+          cmp ww2-campaign.html android/app/src/main/assets/ww2-campaign.html
+          cmp ww2-campaign-data.js android/app/src/main/assets/ww2-campaign-data.js
           grep -q 'GREEN_DAWN_TEST' android/app/src/main/assets/index.html
           grep -q 'JUNGLE ASSAULT' android/app/src/main/assets/index.html
       - name: Test campaign and mission progression
@@ -97,13 +101,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Campaign-v0.12-debug.apk
-          if gh release view v0.12.0 >/dev/null 2>&1; then
-            gh release upload v0.12.0 GreenDawn-Campaign-v0.12-debug.apk --clobber
+          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Campaign-v0.13-debug.apk
+          if gh release view v0.13.0 >/dev/null 2>&1; then
+            gh release upload v0.13.0 GreenDawn-Campaign-v0.13-debug.apk --clobber
           else
-            gh release create v0.12.0 GreenDawn-Campaign-v0.12-debug.apk \
+            gh release create v0.13.0 GreenDawn-Campaign-v0.13-debug.apk \
               --target "$GITHUB_SHA" \
-              --title "Green Dawn v0.12.0 — Android test build" \
-              --notes "Green Dawn v0.12 introduces local campaign backups and confirmed restoration. At Camp, choose SAVE DATA to export a portable JSON file through Android Files, or import and preview a backup before replacing your current save. Ranks, recruits, casualties, mission victories and pending memorials are included. Backup validation and 10 automated regression tests protect existing three-mission gameplay. Build workflow supports optional persistent signing using GitHub secrets, but uses temporary debug signing until keys are configured. CAUTION: uninstalling v0.11 will erase its local save; export in v0.12 cannot retroactively recover a deleted v0.11 save." \
+              --title "Green Dawn v0.13.0 — Android test build" \
+              --notes "Green Dawn v0.13 introduces the WWII Road to Berlin campaign alongside the original 3-level jungle campaign. A complete offline battle-theatre map now lists all 100 planned missions in 17 regions (16 historical campaigns x 6 missions plus 4 fictional Berlin operations). Mission 001 Cold Landing in Norway is playable with winter pixel art, pines, icy fjord, a coastal gun and a secure-the-landing-zone objective. Other levels remain locked until built. WWII soldiers, memorials and backups use separate storage; existing jungle saves remain unchanged. Android includes all map data offline and 14 automated checks. Optional stable signing still requires GitHub secrets; do not uninstall an older build if its local save must be kept." \
               --prerelease
           fi
