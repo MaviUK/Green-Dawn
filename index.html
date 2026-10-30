@@ -50,6 +50,7 @@
   let W=512,VW=402,VH=CTRL_Y,state='title',mode='move',selected=-1,split=false;
   let cam={x:0,y:0}, pointer={x:0,y:0,wx:0,wy:0,down:false,firePointer:null};
   const HOLD_TO_FIRE_MS=240; // one finger: quick tap moves, long hold shoots
+  const MARCH_GAP=19, TRAIL_STEP=3, TRAIL_LIMIT=620; // one-file marching, each soldier follows actual footsteps
   let gesture=null; // {id,started,x,y,wx,wy,firing}; active battlefield finger only
   let hudPress=null; // hold a soldier row to transfer between Alpha and Bravo
   let soldiers=[],enemies=[],bullets=[],bombs=[],particles=[],decals=[],trees=[],rocks=[];
@@ -328,7 +329,9 @@
   }
   function teamCount(team){return soldiers.filter(s=>s.alive&&s.team===team).length;}
   function focusSelection(){
-    const leader=currentSoldiers()[0];if(!leader)return;
+    const group=currentSoldiers();
+    const leader=group.find(s=>s.followId===null||s.followId===undefined)||group[0];
+    if(!leader)return;
     cam.x=clamp(leader.x-VW*.41,0,Math.max(0,MW-VW));
     cam.y=clamp(leader.y-VH*.56,0,MH-VH);
   }
@@ -346,36 +349,158 @@
   function toggleSplit(){
     cancelGesture();
     if(split){
-      // Regroup at the currently selected team instead of abandoning either
-      // squad at its old destination. This is a physical rally order.
+      // JOIN is a physical rally at the selected leader, not a teleport.
       const leader=currentSoldiers()[0];
       const rally=leader?{x:leader.x,y:leader.y}:null;
       split=false;selected=-1;soldiers.forEach(s=>s.team='A');
-      if(rally)moveSquad(rally.x,rally.y);
+      if(rally)moveSquad(rally.x,rally.y,leader.id);
       focusSelection();flash('SQUADS REGROUPING',2);sound('move');return;
     }
     const live=soldiers.filter(s=>s.alive);
     if(live.length<2){flash('NEED 2 SOLDIERS TO SPLIT',2);sound('error');return;}
-    // Two with Alpha, one with Bravo. Both keep their existing orders.
+    // Anyone who moves to Bravo must stop trailing the Alpha leader;
+    // retain the old destination as an independent marching order.
     live.forEach((s,i)=>s.team=i===live.length-1?'B':'A');
+    for(const s of live) if(s.followId!==null&&s.followId!==undefined&&
+      soldiers[s.followId].team!==s.team)detachFromLeader(s,true);
     split=true;selected='A';focusSelection();flash('ALPHA + BRAVO: TAP TEAM TO SWITCH',2.7);sound('move');
   }
   function transferSoldier(id){
     if(!split||!soldiers[id]||!soldiers[id].alive)return false;
     const s=soldiers[id],from=s.team,to=from==='A'?'B':'A';
     if(teamCount(from)<2){flash('EACH TEAM NEEDS A SOLDIER',1.9);sound('error');return false;}
-    s.team=to;selected=to;focusSelection();
+    // Keep the remaining squad moving if this was its leader.
+    releaseFollowersOf(s);
+    detachFromLeader(s,false);
+    s.team=to;
+    const destinationTeam=soldiers.filter(q=>q.alive&&q.team===to&&q.id!==id);
+    const teamLead=destinationTeam.find(q=>q.followId===null||q.followId===undefined)||destinationTeam[0];
+    if(teamLead){
+      if(!teamLead.trail||!teamLead.trail.length)startFootsteps(teamLead);
+      assignFollower(s,teamLead,destinationTeam.length);
+    }
+    selected=to;focusSelection();
     flash(s.name+' MOVED TO '+(to==='A'?'ALPHA':'BRAVO'),2);sound('move');return true;
   }
   function flash(txt,duration=2){message=txt;messageTime=duration;}
-  function moveSquad(x,y){
+
+  // Each squad follows one leader. The leader records an actual ground trail
+  // and each follower targets a point a fixed distance behind them, keeping
+  // natural single-file spacing through narrow gaps and over the bridge.
+  function startFootsteps(s){
+    s.trailWalked=0;s.trail=[{x:s.x,y:s.y,walked:0}];
+  }
+  function recordFootsteps(s){
+    if(!s.trail||!s.trail.length)startFootsteps(s);
+    const last=s.trail[s.trail.length-1],walked=dist(s.x,s.y,last.x,last.y);
+    if(walked<TRAIL_STEP)return;
+    s.trailWalked+=walked;
+    s.trail.push({x:s.x,y:s.y,walked:s.trailWalked});
+    if(s.trail.length>TRAIL_LIMIT)s.trail.shift();
+  }
+  function footstepBehind(leader,gap){
+    const trail=leader.trail;
+    if(!trail||!trail.length)return {x:leader.x,y:leader.y};
+    const target=Math.max(0,(leader.trailWalked||0)-gap);
+    if(target<=trail[0].walked){
+      // The leader has not yet walked far enough to leave a complete trail.
+      // Place followers *behind* the starting point, rather than piling
+      // every soldier onto that point when the leader stops to regroup.
+      const remaining=Math.max(0,gap-(leader.trailWalked||0));
+      const origin=trail[0];
+      const heading=trail.length>1?
+        Math.atan2(trail[1].y-origin.y,trail[1].x-origin.x):leader.face||0;
+      for(const turn of [0,.65,-.65,1.3,-1.3,Math.PI]){
+        const angle=heading+turn;
+        const candidate={x:origin.x-Math.cos(angle)*remaining,
+          y:origin.y-Math.sin(angle)*remaining};
+        if(candidate.x<12||candidate.y<12||candidate.x>MW-12||candidate.y>MH-12)continue;
+        if(!blocked(candidate.x,candidate.y,4)&&walkClear(origin,candidate))return candidate;
+      }
+      return origin;
+    }
+    for(let i=trail.length-1;i>0;i--){
+      const b=trail[i],a=trail[i-1];
+      if(a.walked<=target){
+        const portion=clamp((target-a.walked)/Math.max(.001,b.walked-a.walked),0,1);
+        return {x:a.x+(b.x-a.x)*portion,y:a.y+(b.y-a.y)*portion};
+      }
+    }
+    return trail[0];
+  }
+  function walkClear(a,b){
+    const steps=Math.max(1,Math.ceil(pointDist(a,b)/3));
+    for(let i=1;i<=steps;i++){
+      const t=i/steps;
+      if(blocked(a.x+(b.x-a.x)*t,a.y+(b.y-a.y)*t,4))return false;
+    }
+    return true;
+  }
+  function assignFollower(s,leader,rank){
+    s.followId=leader.id;s.followGap=MARCH_GAP*rank;
+    s.followGoal=null;s.followTimer=0;s.path=[];
+  }
+  function detachFromLeader(s,keepDestination=false){
+    if(s.followId===null||s.followId===undefined)return;
+    const leader=soldiers[s.followId];
+    // On split, the other squad keeps marching toward the former command.
+    const oldEnd=leader&&leader.path.length?leader.path[leader.path.length-1]:s.followGoal;
+    s.followId=null;s.followGoal=null;s.followTimer=0;s.followGap=0;
+    s.path=keepDestination&&oldEnd?pathfind(s.x,s.y,oldEnd.x,oldEnd.y):[];
+  }
+  function releaseFollowersOf(leader){
+    for(const s of soldiers)if(s.alive&&s.followId===leader.id)detachFromLeader(s,true);
+  }
+  function moveSquad(x,y,leaderOverride=null){
     const live=currentSoldiers();if(!live.length)return;
-    live.forEach((s,i)=>{
-      const off=live.length>1?{x:((i%2)*2-1)*11,y:Math.floor(i/2)*13}: {x:0,y:0};
-      s.path=pathfind(s.x,s.y,clamp(x+off.x,18,MW-18),clamp(y+off.y,18,MH-18));
-    });
+    const leader=live.find(s=>s.id===leaderOverride)||live[0];
+    // An individually controlled leader must not drag a different team along.
+    for(const s of soldiers)if(s.alive&&s.followId===leader.id&&!live.includes(s))detachFromLeader(s,true);
+    for(const s of live)detachFromLeader(s,false);
+    const goal={x:clamp(x,18,MW-18),y:clamp(y,18,MH-18)};
+    leader.path=pathfind(leader.x,leader.y,goal.x,goal.y);
+    startFootsteps(leader);
+    let rank=0;
+    for(const s of live)if(s!==leader)assignFollower(s,leader,++rank);
     addParticles(x,y,'#f3d676',5,12,'marker');
     sound('move');
+  }
+  function moveOneSoldier(s,dt,speed=DIFFICULTY.moveSpeed){
+    // Skip reached waypoints without wasting a whole frame on each corner.
+    while(s.path.length&&dist(s.x,s.y,s.path[0].x,s.path[0].y)<3)s.path.shift();
+    if(!s.path.length)return;
+    const p=s.path[0],dx=p.x-s.x,dy=p.y-s.y,len=Math.hypot(dx,dy);
+    if(len<.001){s.path.shift();return;}
+    const step=Math.min(len,speed*dt);
+    s.face=Math.atan2(dy,dx);
+    const nx=s.x+dx/len*step,ny=s.y+dy/len*step;
+    if(!blocked(nx,ny,4)){s.x=nx;s.y=ny;}
+    else {s.path=[];s.followTimer=0;}
+  }
+  function advanceFormation(dt){
+    // First move leaders; followers then follow their leaders' current trail.
+    for(const s of soldiers){
+      if(!s.alive||(s.followId!==null&&s.followId!==undefined))continue;
+      moveOneSoldier(s,dt);recordFootsteps(s);
+    }
+    for(const s of soldiers){
+      if(!s.alive||s.followId===null||s.followId===undefined)continue;
+      const leader=soldiers[s.followId];
+      if(!leader||!leader.alive){detachFromLeader(s,false);continue;}
+      const goal=footstepBehind(leader,s.followGap);
+      const distanceToGoal=dist(s.x,s.y,goal.x,goal.y);
+      s.followTimer=(s.followTimer||0)-dt;
+      if(distanceToGoal<4){s.path=[];s.followGoal=goal;continue;}
+      const changed=!s.followGoal||pointDist(s.followGoal,goal)>5;
+      if(s.followTimer<=0&&(changed||!s.path.length)){
+        s.path=walkClear(s,goal)?[{x:goal.x,y:goal.y}]:pathfind(s.x,s.y,goal.x,goal.y);
+        s.followGoal={x:goal.x,y:goal.y};
+        s.followTimer=distanceToGoal>85?.37:.20;
+      }
+      // A lagging soldier briefly picks up the pace to keep the formation.
+      const speed=DIFFICULTY.moveSpeed*(distanceToGoal>75?1.34:distanceToGoal>34?1.17:1);
+      moveOneSoldier(s,dt,speed);
+    }
   }
   function nearAimTarget(x,y){
     let target=null,d=21;
@@ -421,7 +546,19 @@
     if(particles.length>290)particles.splice(0,particles.length-290);
   }
   function killSoldier(s){
-    if(!s.alive)return;s.alive=false;s.path=[];
+    if(!s.alive)return;
+    // If the leader falls, a surviving follower assumes command rather than
+    // abandoning the others on the far side of a bridge.
+    const followers=soldiers.filter(q=>q.alive&&q.followId===s.id);
+    if(followers.length){
+      const destination=s.path.length?s.path[s.path.length-1]:{x:s.x,y:s.y};
+      const newLeader=followers[0];detachFromLeader(newLeader,false);
+      newLeader.path=pathfind(newLeader.x,newLeader.y,destination.x,destination.y);
+      startFootsteps(newLeader);
+      followers.slice(1).forEach((q,i)=>assignFollower(q,newLeader,i+1));
+    }
+    if(s.followId!==null&&s.followId!==undefined)detachFromLeader(s,false);
+    s.alive=false;s.path=[];
     decals.push({x:s.x,y:s.y,color:'#543f2d',life:60});
     addParticles(s.x,s.y,'#b56a48',15,42,'spark');sound('down');flash(s.name+' HAS FALLEN',3);
     if(selected===s.id)selected=split?s.team:-1;
@@ -460,18 +597,7 @@
 
   function update(dt){
     clock+=dt;if(messageTime>0)messageTime-=dt;if(panHint>0)panHint-=dt;
-    for(const s of soldiers){
-      if(!s.alive)continue;
-      if(s.path.length){
-        const p=s.path[0],dx=p.x-s.x,dy=p.y-s.y,len=Math.hypot(dx,dy);
-        if(len<3){s.path.shift();continue;}
-        const step=Math.min(len,DIFFICULTY.moveSpeed*dt);
-        s.face=Math.atan2(dy,dx);
-        const nx=s.x+dx/len*step,ny=s.y+dy/len*step;
-        if(!blocked(nx,ny,4)){s.x=nx;s.y=ny;}
-        else s.path.shift();
-      }
-    }
+    advanceFormation(dt);
     const live=soldiers.filter(s=>s.alive);
     for(const e of enemies){
       if(!e.alive)continue;
@@ -544,7 +670,8 @@
   function followCamera(dt){
     let focus=currentSoldiers();if(!focus.length)focus=soldiers.filter(s=>s.alive);
     if(focus.length){
-      const lead=focus[0],tx=lead.x-VW*.41,ty=lead.y-VH*.56;
+      const lead=focus.find(s=>s.followId===null||s.followId===undefined)||focus[0];
+      const tx=lead.x-VW*.41,ty=lead.y-VH*.56;
       const speed=1-Math.exp(-dt*4.9);
       cam.x+=(tx-cam.x)*speed;cam.y+=(ty-cam.y)*speed;
     }
@@ -631,7 +758,7 @@
     for(const s of soldiers){
       if(!s.alive)continue;
       const chosen=selected===s.id||(split&&selected===s.team);
-      iconSoldier(ctx,s.x,s.y,s.face,true,false,chosen,clock*(s.path.length>0));
+      iconSoldier(ctx,s.x,s.y,s.face,true,false,chosen,clock*(s.path.length>0||s.followId!==null&&s.followId!==undefined));
       if(split){
         rect(s.x-5,s.y-21,10,8,s.team==='A'?'#c7a95d':'#66b6c3');
         text(s.team,s.x,s.y-21,7,'#142219','center');
@@ -717,7 +844,7 @@
       stroke(5,y,100,29,on?'#e4c776':'#40563c');
       iconSoldier(ctx,17,y+15,0,s.alive,false,false,0);
       text(s.name,30,y+4,11,s.alive?C.cream:'#786b59');
-      text(s.alive?(s.path.length?'MOVING':'READY'):'FALLEN',30,y+18,8,s.alive?'#a1bb80':'#da6c58');
+      text(s.alive?(s.followId!==null&&s.followId!==undefined?'FOLLOW':s.path.length?'MOVING':'READY'):'FALLEN',30,y+18,8,s.alive?'#a1bb80':'#da6c58');
       text(s.alive?(split?s.team:'★'):'×',94,y+6,12,s.alive?(split&&s.team==='B'?'#83d1d8':C.sand):C.danger,'right');
     });
     text(split?'HOLD NAME: SWAP':'AMMO',8,171,split?8:9,C.mint);
@@ -983,12 +1110,12 @@
   Object.defineProperty(window,'GREEN_DAWN_TEST',{value:{
     get status(){return {state,mode,score,kills,grenades,alive:soldiers.filter(s=>s.alive).length,enemyCount:enemies.filter(e=>e.alive).length,bunkerHp:bunker.hp,camera:{...cam},time:clock};},
     get controls(){return {pending:!!(gesture&&!gesture.firing),firing:!!(gesture&&gesture.firing),shotsFired:playerShots,aim:{...aim},holdMs:HOLD_TO_FIRE_MS};},
-    get roster(){return soldiers.map(s=>({name:s.name,x:s.x,y:s.y,alive:s.alive,team:s.team,pathLength:s.path.length,destination:s.path.at(-1)||null}));},
+    get roster(){return soldiers.map(s=>({name:s.name,x:s.x,y:s.y,alive:s.alive,team:s.team,followId:s.followId??null,followGap:s.followGap||0,trailPoints:s.trail?.length||0,followGoal:s.followGoal||null,pathLength:s.path.length,destination:s.path.at(-1)||null}));},
     get squads(){return {split,selected,alpha:soldiers.filter(s=>s.alive&&s.team==='A').map(s=>s.name),bravo:soldiers.filter(s=>s.alive&&s.team==='B').map(s=>s.name)};},
     toggleSplit:()=>toggleSplit(),
     selectTeam:(team)=>chooseTeam(team),
     transfer:(id)=>transferSoldier(id),
-    commandMove:(x,y)=>moveSquad(x,y),
+    commandMove:(x,y,leadId)=>moveSquad(x,y,leadId),
     commandFire:(x,y)=>{beginFire(x,y);fireUntil=clock+2.5;},
     commandGrenade:(x,y)=>throwGrenade(x,y),
     start:()=>resetMission(),

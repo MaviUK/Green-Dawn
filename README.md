@@ -1,34 +1,35 @@
 # GREEN DAWN — Mission 01: Jungle Assault
 
-Original retro pixel-art squad-tactics game for Android. Lead JAX, ACE and PIP through jungle patrols and destroy a radio bunker. Original artwork and source code inspired by the *feel* of classic Amiga games, without copied Cannon Fodder assets.
+A playable original retro 16-bit-inspired Android squad-tactics game. Lead Jax, Ace and Pip through jungle patrols, collect ammunition and destroy the radio bunker. All art, code and sound effects are original.
 
-## Install on Android (v0.4 — split squads)
+## Android v0.5 — marching formations
 
-**[Download Green Dawn v0.4 APK](https://github.com/MaviUK/Green-Dawn/releases/download/v0.4.0/GreenDawn-Mission01-v0.4-debug.apk)**
+**[Direct Android APK download](https://github.com/MaviUK/Green-Dawn/releases/download/v0.5.0/GreenDawn-Mission01-v0.5-debug.apk)**
 
-Open the download in **Chrome**. On Samsung, go to **My Files → Downloads**, tap the APK, then install. Allow installation from Chrome or My Files if Android asks. This is a test/debug APK, not a Google Play release.
+Open the link in Chrome. Then open **My Files → Downloads**, tap the APK, and install. This is a debug build for testing, not the Play Store release.
 
-**Note:** CI-built debug APKs use temporary signing keys, so Android may reject upgrading an older version directly. If it says *App not installed* or *Package conflicts*, uninstall the previous Green Dawn version before installing v0.4. This clears the older local save data. We will configure stable signing before public release.
+**Older-version upgrade warning:** GitHub's debug signing certificate is generated for each build. Android may refuse to install v0.5 over v0.4 with a signature-conflict message. If that happens, uninstall the old Green Dawn first, then install the new APK. Uninstalling will erase that installation's locally saved mission progress. A fixed signing identity is planned before production distribution.
 
-## Squad management
+## Controls
 
-- Start the mission with all three soldiers under one command.
-- Tap **SPLIT** on the bottom bar: **Alpha** gets JAX and ACE, **Bravo** gets PIP.
-- Tap **A** or **B** above the soldier list to take control of that group. The camera follows the selected group.
-- **Tap a soldier's name** to control that soldier alone, even while split.
-- **Press and hold a soldier's name** to move them to the *other* team. Each team must keep at least one living soldier.
-- Tap **JOIN** to issue a **regroup order**, gathering survivors at the currently selected team leader.
-- Unselected teams **continue their last movement orders** while you control the other team.
-- **Tap the battlefield** to move the selected team; **hold to shoot**, **drag to aim**, **release to stop**.
-- Tap **FRAG** and then tap the target to throw a grenade from the selected team. Tap FRAG again to cancel.
+- **Tap ground:** issue a move order.
+- **Hold ground ~240 ms:** fire in that direction; drag to aim; release to stop.
+- **SPLIT:** divide the soldiers into Alpha and Bravo. **A** and **B** select either squad.
+- **Tap soldier name:** control just that soldier. **Hold name:** transfer that soldier to the other squad (when possible).
+- **JOIN:** reunite at the selected squad leader's position.
+- **FRAG:** arm a grenade, then tap where to throw. **PAUSE** to suspend.
 
-Teams are visible in gold (Alpha) and blue (Bravo) on soldiers' labels and minimap.
+## New movement behaviour in v0.5
 
-## Building
+- The squad leader chooses one safe route. Followers chase sampled points **19px and 38px behind the leader's actual footsteps**.
+- Followers navigate around obstacles and use the bridge rather than cutting across impassable riverbank.
+- Marchers move in a natural single-file formation and settle at staggered positions when stopped.
+- Independent Alpha/Bravo orders are maintained. Transferring a soldier to the other team redirects them towards that team's leader.
+- A separate individual order detaches that soldier from the formation; the old squad retains its last destination.
+- If a leader is killed, the first surviving follower takes command of that moving group.
 
-- `index.html`: browser-playable self-contained game
-- `android/app/src/main/assets/index.html`: identical bundled offline game
-- `android/app/src/main/java/uk/co/greendawn/jungle/MainActivity.java`: Android landscape fullscreen wrapper
-- `.github/workflows/android-debug-apk.yml`: builds APK and publishes GitHub Release when pushed
+## Source and privacy
 
-Android package `uk.co.greendawn.jungle`; version 0.4.0; requires Android 8.0 or newer. No Internet permission, analytics or ads; progress remains on the device.
+`index.html` is the browser-playable game, and `android/app/src/main/assets/index.html` is the identical offline game built into the APK. `android/app/src/main/java/uk/co/greendawn/jungle/MainActivity.java` hosts it in an Android fullscreen landscape WebView. GitHub Actions compiles the APK and publishes the versioned GitHub Release automatically.
+
+Android package: `uk.co.greendawn.jungle`; version 0.5.0; minimum Android 8.0. No Internet permission, tracking, advertising or accounts. Game progress lives locally on your phone.
