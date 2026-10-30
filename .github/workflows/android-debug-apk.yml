@@ -69,13 +69,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Mission01-v0.2-debug.apk
-          if gh release view v0.2.0 >/dev/null 2>&1; then
-            gh release upload v0.2.0 GreenDawn-Mission01-v0.2-debug.apk --clobber
+          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Mission01-v0.3-debug.apk
+          if gh release view v0.3.0 >/dev/null 2>&1; then
+            gh release upload v0.3.0 GreenDawn-Mission01-v0.3-debug.apk --clobber
           else
-            gh release create v0.2.0 GreenDawn-Mission01-v0.2-debug.apk \
+            gh release create v0.3.0 GreenDawn-Mission01-v0.3-debug.apk \
               --target "$GITHUB_SHA" \
-              --title "Green Dawn v0.2.0 — Android test build" \
-              --notes "Mission 01: Jungle Assault. Android debug APK for testing on your phone. Offline, original pixel art. Download the APK under Assets and open it using Samsung My Files." \
+              --title "Green Dawn v0.3.0 — Android test build" \
+              --notes "Mission 01 with single-touch controls: TAP to move, HOLD to fire, DRAG while holding to aim, RELEASE to stop. FRAG button arms grenades. Android test APK with original pixel art; install via Samsung My Files." \
               --prerelease
           fi

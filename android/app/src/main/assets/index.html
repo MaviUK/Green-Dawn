@@ -27,12 +27,12 @@
 </head>
 <body>
   <main id="game-container">
-    <canvas id="game" tabindex="0" aria-label="Green Dawn jungle assault game. Use landscape mode. Tap Move and select destinations, Fire and aim at targets, Grenade and tap the target."></canvas>
+    <canvas id="game" tabindex="0" aria-label="Green Dawn jungle assault game. Use landscape mode. Tap to move. Press and hold on the battlefield to shoot in that direction. Tap Grenade then your target to throw."></canvas>
     <div id="orientation" role="status"><div class="icon">↻</div><h1>ROTATE TO DEPLOY</h1><p>Turn your phone sideways for the full 16-bit battlefield.</p></div>
   </main>
   <script>
 /*
-  GREEN DAWN — MISSION 01: JUNGLE ASSAULT
+  GREEN DAWN v0.3 — MISSION 01: JUNGLE ASSAULT
   Original game, procedural pixel art, original gameplay code and synthesized SFX.
   No art/music/code from Cannon Fodder or any other game is used.
 */
@@ -49,10 +49,13 @@
   const DIFFICULTY = { enemySight:142, enemyFire:1.38, gunRate:.18, moveSpeed:73, grenadeRadius:53 };
   let W=512,VW=402,VH=CTRL_Y,state='title',mode='move',selected=-1;
   let cam={x:0,y:0}, pointer={x:0,y:0,wx:0,wy:0,down:false,firePointer:null};
+  const HOLD_TO_FIRE_MS=240; // one finger: quick tap moves, long hold shoots
+  let gesture=null; // {id,started,x,y,wx,wy,firing}; active battlefield finger only
   let soldiers=[],enemies=[],bullets=[],bombs=[],particles=[],decals=[],trees=[],rocks=[];
   let bunker,ammo,terrain,mapData=[],clock=0,shotClock=0,fireUntil=0,aim={x:0,y:0};
   let score=0,kills=0,grenades=3,started=0,freeze=0,message='',messageTime=0,panHint=0;
   let timeNow=0,mouseRight=false,hasAudio=false,audioOn=true,audioCtx=null,objectiveArrow=0;
+  let playerShots=0;
   let saved={wins:0,bestScore:0,bestSurvivors:0};
   // A small settings key that survives a native WebView restart.
   try {audioOn=localStorage.getItem('green-dawn-audio-v2')!=='off';}catch(_){}
@@ -297,7 +300,7 @@
 
   function resetMission(){
     state='playing';mode='move';selected=-1;clock=0;started=performance.now()/1000;
-    fireUntil=0;shotClock=0;score=0;kills=0;grenades=3;freeze=0;mouseRight=false;
+    cancelGesture();shotClock=0;score=0;kills=0;grenades=3;freeze=0;playerShots=0;
     soldiers=[
       {name:'JAX',x:111,y:573,alive:true,rank:1,fire:0,path:[],face:-.6,id:0,color:'#4f803d'},
       {name:'ACE',x:95,y:592,alive:true,rank:1,fire:.05,path:[],face:-.6,id:1,color:'#637e3d'},
@@ -336,16 +339,26 @@
       return {x:bunker.x+bunker.w*.5,y:bunker.y+bunker.h*.48};
     return target||{x,y};
   }
-  function beginFire(x,y){mode='fire';aim=nearAimTarget(x,y);fireUntil=clock+.46;shotClock=0;}
+  function beginFire(x,y){aim=nearAimTarget(x,y);fireUntil=clock+.04;shotClock=0;}
   function updateAim(x,y){aim=nearAimTarget(x,y);}
-  function setMode(next){if(state!=='playing')return;if(next==='grenade'&&grenades<=0){flash('NO GRENADES LEFT',1.3);sound('error');return;}mode=next;flash(next==='move'?'TAP GROUND TO MOVE':next==='fire'?'TAP / DRAG TO FIRE':'TAP TO THROW GRENADE',1.25);}
+  function setMode(next){
+    if(state!=='playing')return;
+    if(next==='grenade'){
+      if(grenades<=0){flash('NO GRENADES LEFT',1.3);sound('error');return;}
+      mode=mode==='grenade'?'move':'grenade';
+      flash(mode==='grenade'?'FRAG ARMED: TAP TARGET':'TAP MOVE  /  HOLD FIRE',1.4);
+      return;
+    }
+    mode='move';
+    flash(next==='fire'?'HOLD ON THE FIELD TO FIRE':'TAP MOVE  /  HOLD FIRE',1.4);
+  }
   function throwGrenade(x,y){
     if(!grenades){flash('OUT OF GRENADES',1.6);sound('error');return;}
     const alive=currentSoldiers();if(!alive.length)return;
     const s=alive[0];let vx=x-s.x,vy=y-s.y,d=Math.hypot(vx,vy)||1;
     if(d>230){x=s.x+vx/d*230;y=s.y+vy/d*230;}
     grenades--;bombs.push({x:s.x,y:s.y,fromX:s.x,fromY:s.y,toX:x,toY:y,t:0,total:.66});
-    mode='fire';sound('throw');flash('FIRE IN THE HOLE!',1.3);
+    mode='move';fireUntil=0;sound('throw');flash('FIRE IN THE HOLE!',1.3);
   }
 
   function fireBullet(from,at,owner){
@@ -353,6 +366,7 @@
     const angle=direct+rand(-accuracy,accuracy);
     const speed=owner==='player'?330:173;
     bullets.push({x:from.x,y:from.y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,owner,life:owner==='player'?1.05:1.7});
+    if(owner==='player')playerShots++;
     addParticles(from.x+Math.cos(angle)*7,from.y+Math.sin(angle)*7,'#fbd65d',2,22,'flash');
   }
   function addParticles(x,y,color,num=9,velocity=30,kind='spark'){
@@ -433,7 +447,7 @@
         }
       }
     }
-    if(mode==='fire'&&(pointer.firePointer!==null||mouseRight||clock<fireUntil)){
+    if((gesture&&gesture.firing)||clock<fireUntil){
       for(const s of currentSoldiers()){
         s.fire-=dt;
         if(s.fire<=0){
@@ -582,7 +596,15 @@
       ctx.globalAlpha=clamp(p.life/p.max*.88+.08,0,1);ctx.fillStyle=p.color;
       ctx.fillRect(Math.round(p.x),Math.round(p.y),Math.max(1,p.size|0),Math.max(1,p.size|0));ctx.globalAlpha=1;
     }
-    if(state==='playing'&&mode==='fire'){
+    if(state==='playing'&&gesture&&!gesture.firing){
+      // Hold indicator: fills before a finger press turns into machine-gun fire.
+      const xx=gesture.x-HUD+cam.x,yy=gesture.y+cam.y;
+      const progress=clamp((timeNow-gesture.started)/HOLD_TO_FIRE_MS,0,1);
+      ctx.strokeStyle='#f5d967';ctx.lineWidth=2;ctx.globalAlpha=.88;
+      ctx.beginPath();ctx.arc(xx,yy,10,-Math.PI*.5,-Math.PI*.5+Math.PI*2*progress);ctx.stroke();
+      ctx.globalAlpha=1;
+    }
+    if(state==='playing'&&((gesture&&gesture.firing)||clock<fireUntil)){
       const r=11,xx=aim.x,yy=aim.y;
       ctx.strokeStyle='#f5d967';ctx.lineWidth=1;ctx.beginPath();ctx.arc(xx,yy,r,0,Math.PI*2);ctx.stroke();
       ctx.beginPath();ctx.moveTo(xx-r-5,yy);ctx.lineTo(xx-r+3,yy);ctx.moveTo(xx+r-3,yy);ctx.lineTo(xx+r+5,yy);
@@ -654,26 +676,23 @@
     text(label,x+w/2,y+7,11,active?C.cream:'#d2deb8','center');
   }
   function buttons(){
-    const total=VW, p=5, gap=5;
-    const a=Math.floor((total-5*gap-2*p)*.19);
-    const b=Math.floor((total-5*gap-2*p)*.19);
-    const c=Math.floor((total-5*gap-2*p)*.27);
-    const d=Math.floor((total-5*gap-2*p)*.16);
-    let e=total-2*p-4*gap-a-b-c-d;
-    if(e<38){e=38;}
-    const x=HUD+p,y=CTRL_Y+3,h=31;
+    const gap=5,p=5;
+    const prompt=Math.floor(VW*.46);
+    const remaining=VW-2*p-prompt-3*gap;
+    const a=Math.floor(remaining*.47),b=Math.floor(remaining*.29),c=remaining-a-b;
+    const x=HUD+p+prompt+gap,y=CTRL_Y+3,h=31;
     const list=[
-      {name:'MOVE',mode:'move',x,w:a},
-      {name:'FIRE',mode:'fire',x:x+a+gap,w:b},
-      {name:'GRENADE',mode:'grenade',x:x+a+b+gap*2,w:c},
-      {name:audioOn?'SFX ON':'SFX OFF',mode:'sound',x:x+a+b+c+gap*3,w:d},
-      {name:'PAUSE',mode:'pause',x:x+a+b+c+d+gap*4,w:e}
+      {name:mode==='grenade'?'CANCEL FRAG':'FRAG '+grenades,mode:'grenade',x,w:a},
+      {name:audioOn?'SFX ON':'SFX OFF',mode:'sound',x:x+a+gap,w:b},
+      {name:'PAUSE',mode:'pause',x:x+a+b+gap*2,w:c}
     ];
     for(const el of list)button(el.x,y,el.w,h,el.name,el.mode,el.mode===mode);
     return list;
   }
   function drawControls(){
     rect(HUD,CTRL_Y,VW,WH-CTRL_Y,'#1a251c');rect(HUD,CTRL_Y,VW,2,'#677e48');
+    text(mode==='grenade'?'TAP TARGET':'TAP TO MOVE',HUD+9,CTRL_Y+6,9,C.cream);
+    text(mode==='grenade'?'FRAG ARMED':'HOLD TO FIRE',HUD+9,CTRL_Y+19,9,C.gold);
     buttons();
   }
   function shade(alpha=.70){ctx.fillStyle=`rgba(7,12,9,${alpha})`;ctx.fillRect(HUD,0,VW,VH);}
@@ -690,7 +709,7 @@
     text('3 SOLDIERS  /  1 RADIO BUNKER',x,156,9,'#c1d4a7','center');
     const bw=Math.min(228,VW-50),bh=37;titleStart={x:x-bw/2,y:183,w:bw,h:bh};
     button(titleStart.x,titleStart.y,bw,bh,'►  DEPLOY SQUAD','start',true);
-    text('TAP TO MOVE  ·  FIRE TO AIM',x,232,9,'#c6d4a9','center');
+    text('TAP TO MOVE  ·  HOLD TO FIRE',x,232,9,'#c6d4a9','center');
     text('GRENADES DESTROY BUILDINGS',x,244,8,'#98ad87','center');
     if(saved.wins>0)text(`MISSIONS CLEARED ${saved.wins}  •  BEST ${saved.bestScore}`,x,265,8,C.sand,'center');
   }
@@ -773,8 +792,14 @@
     return{x,y,wx:x-HUD+cam.x,wy:y+cam.y};
   }
   function inside(p,b){return p.x>=b.x&&p.x<b.x+b.w&&p.y>=b.y&&p.y<b.y+b.h;}
+  function cancelGesture(){
+    gesture=null;pointer.firePointer=null;pointer.down=false;mouseRight=false;fireUntil=0;
+  }
   function onPointerDown(e){
-    if(e.cancelable)e.preventDefault();canvas.focus();audioInit();
+    if(e.cancelable)e.preventDefault();
+    // Ignore additional fingers: one battlefield gesture at a time.
+    if(gesture)return;
+    canvas.focus();audioInit();
     const p=where(e);Object.assign(pointer,p);pointer.down=true;
     try{canvas.setPointerCapture(e.pointerId);}catch(_){}
     if(state==='title'){if(inside(p,titleStart))resetMission();return;}
@@ -788,37 +813,47 @@
     if(p.y>=CTRL_Y){
       const hit=buttons().find(b=>inside(p,{x:b.x,y:CTRL_Y,w:b.w,h:35}));
       if(hit){
-        if(hit.mode==='pause'){state='paused';pointer.firePointer=null;mouseRight=false;}
+        if(hit.mode==='pause'){state='paused';cancelGesture();}
         else if(hit.mode==='sound'){audioOn=!audioOn;try{localStorage.setItem('green-dawn-audio-v2',audioOn?'on':'off');}catch(_){}if(audioOn)audioInit();}
         else setMode(hit.mode);
       }
       return;
     }
-    if(e.button===2){mouseRight=true;beginFire(p.wx,p.wy);pointer.firePointer=e.pointerId;return;}
-    if(mode==='move')moveSquad(p.wx,p.wy);
-    else if(mode==='fire'){beginFire(p.wx,p.wy);pointer.firePointer=e.pointerId;}
-    else if(mode==='grenade')throwGrenade(p.wx,p.wy);
+    if(mode==='grenade'&&e.button!==2){throwGrenade(p.wx,p.wy);return;}
+    // Do NOT move immediately. A release before the threshold issues a move;
+    // a long press begins sustained fire towards the finger instead.
+    gesture={id:e.pointerId,started:performance.now(),x:p.x,y:p.y,wx:p.wx,wy:p.wy,firing:e.button===2};
+    if(gesture.firing){pointer.firePointer=e.pointerId;beginFire(p.wx,p.wy);}
   }
   function onPointerMove(e){
+    if(gesture&&e.pointerId!==gesture.id)return;
     const p=where(e);Object.assign(pointer,p);
-    if(state==='playing'&&pointer.firePointer===e.pointerId&&mode==='fire')updateAim(p.wx,p.wy);
+    if(gesture&&state==='playing'){
+      gesture.x=clamp(p.x,HUD+1,W-2);
+      gesture.y=clamp(p.y,1,CTRL_Y-2);
+      gesture.wx=gesture.x-HUD+cam.x;gesture.wy=gesture.y+cam.y;
+      if(gesture.firing)updateAim(gesture.wx,gesture.wy);
+    }
   }
   function onPointerUp(e){
-    if(pointer.firePointer===e.pointerId){
-      pointer.firePointer=null;mouseRight=false;
-      fireUntil=Math.max(fireUntil,clock+.09);
-    }
-    pointer.down=false;
+    if(gesture&&e.pointerId!==gesture.id)return;
+    if(gesture){
+      const elapsed=performance.now()-gesture.started;
+      if(state==='playing'&&!gesture.firing&&elapsed<HOLD_TO_FIRE_MS&&e.type!=='pointercancel'){
+        moveSquad(gesture.wx,gesture.wy);
+      }
+      cancelGesture();
+    }else pointer.down=false;
     try{if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);}catch(_){}
   }
   function pauseForBackground(){
-    if(state==='playing'){state='paused';pointer.firePointer=null;pointer.down=false;mouseRight=false;fireUntil=0;}
+    if(state==='playing'){state='paused';cancelGesture();}
   }
   function onKey(e){
     if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
     if(e.code==='KeyR'){if(state!=='title'){resetMission();}return;}
     if(e.code==='KeyP'||e.code==='Escape'){
-      if(state==='playing'){state='paused';pointer.firePointer=null;mouseRight=false;}
+      if(state==='playing'){state='paused';cancelGesture();}
       else if(state==='paused')state='playing';return;
     }
     if(state==='title'&&(e.code==='Enter'||e.code==='Space')){audioInit();resetMission();return;}
@@ -829,10 +864,20 @@
     if(e.code==='KeyM')setMode('move');
     if(e.code==='KeyF')setMode('fire');
     if(e.code==='KeyG')setMode('grenade');
-    if(e.code==='Space'){if(mode==='fire')beginFire(pointer.wx,pointer.wy);}
+    if(e.code==='Space'){beginFire(pointer.wx,pointer.wy);}
   }
   let last=performance.now();
   function tick(t){const dt=clamp((t-last)/1000,0,.04);last=t;timeNow=t;
+    if(state==='playing'&&gesture){
+      if(!gesture.firing&&t-gesture.started>=HOLD_TO_FIRE_MS){
+        gesture.firing=true;pointer.firePointer=gesture.id;
+        beginFire(gesture.wx,gesture.wy);
+      }
+      if(gesture.firing){
+        // Recalculate aim as the camera follows moving soldiers underneath a held finger.
+        updateAim(gesture.x-HUD+cam.x,gesture.y+cam.y);
+      }
+    }
     if(state==='playing')update(dt);
     draw();requestAnimationFrame(tick);
   }
@@ -853,6 +898,7 @@
   // Expose a tiny read-only test surface to catch playability regressions.
   Object.defineProperty(window,'GREEN_DAWN_TEST',{value:{
     get status(){return {state,mode,score,kills,grenades,alive:soldiers.filter(s=>s.alive).length,enemyCount:enemies.filter(e=>e.alive).length,bunkerHp:bunker.hp,camera:{...cam},time:clock};},
+    get controls(){return {pending:!!(gesture&&!gesture.firing),firing:!!(gesture&&gesture.firing),shotsFired:playerShots,aim:{...aim},holdMs:HOLD_TO_FIRE_MS};},
     get roster(){return soldiers.map(s=>({name:s.name,x:s.x,y:s.y,alive:s.alive,pathLength:s.path.length}));},
     commandMove:(x,y)=>moveSquad(x,y),
     commandFire:(x,y)=>{beginFire(x,y);fireUntil=clock+2.5;},
