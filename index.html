@@ -60,7 +60,8 @@
   let bunker,ammo,extraction={x:319,y:91,r:25},terrain,mapData=[],clock=0,shotClock=0,fireUntil=0,aim={x:0,y:0};
   let score=0,kills=0,grenades=3,started=0,freeze=0,message='',messageTime=0,panHint=0;
   let timeNow=0,mouseRight=false,hasAudio=false,audioOn=true,audioCtx=null,objectiveArrow=0;
-  let playerShots=0;
+  let playerShots=0,reinforcementsSent=false;
+  const CAMPAIGN_MISSIONS=3;
   // Permanent personnel records. A separate v0.8 save starts the new one-way
   // campaign with fresh recruits, since older test saves had no soldier identities.
   const CAREER_KEY='green-dawn-campaign-v1',MAX_DEPLOY=3,RECRUITS_PER_VICTORY=2;
@@ -77,7 +78,7 @@
   let memorialOffset=-48,memorialFinger=null,memorialHoldUntil=0;
   let memorialReturn='title',memorialOperation=1,memorialRecent=[],memorialAutomatic=false,memorialMissionOnly=false;
   let memorialButton={x:0,y:0,w:0,h:0},memorialWindow={x:0,y:0,w:0,h:0};
-  const operationName=n=>n===1?'JUNGLE ASSAULT':n===2?'DEPOT RAID':'AWAITING ORDERS';
+  const operationName=n=>n===1?'JUNGLE ASSAULT':n===2?'DEPOT RAID':n===3?'RADAR BLACKOUT':'AWAITING ORDERS';
   // A small settings key that survives a native WebView restart.
   try {audioOn=localStorage.getItem('green-dawn-audio-v2')!=='off';}catch(_){}
   let seed=1;
@@ -109,8 +110,9 @@
          data.nextMission>=1 && Number.isInteger(data.nextId) && data.nextId>=3){
         career={...career,...data};
         // Never trust a historical menu-selection save to skip operations.
-        const completed=career.victories.map(v=>v.mission);
-        career.nextMission=completed.includes(1)?(completed.includes(2)?3:2):1;
+        const completed=new Set(career.victories.map(v=>v.mission));
+        career.nextMission=1;
+        while(career.nextMission<=CAMPAIGN_MISSIONS&&completed.has(career.nextMission))career.nextMission++;
         career.active=career.active.filter(m=>m&&typeof m.name==='string'&&
           !career.fallen.some(f=>f.id===m.id));
         return;
@@ -135,7 +137,7 @@
     memorialAutomatic=auto;
     memorialMissionOnly=missionOnly;
     memorialReturn=returnTo;
-    memorialOperation=missionOnly?missionIndex:Math.max(1,Math.min(2,career.nextMission-1));
+    memorialOperation=missionOnly?missionIndex:Math.max(1,Math.min(CAMPAIGN_MISSIONS,career.nextMission-1));
     memorialRecent=missionOnly?afterAction.fallen.map(s=>s.id):[];
     state=auto?'honours':'memorial';
   }
@@ -219,9 +221,14 @@
   }
 
   function generateTerrain(){
-    seed=missionIndex===2?684291:378194;
-    // The depot raid uses an eastern insertion route crossing the bridge to the west.
-    pathLine=missionIndex===2?[{x:895,y:560},{x:807,y:482},{x:744,y:411},{x:684,y:331},
+    seed=missionIndex===3?942731:missionIndex===2?684291:378194;
+    // Mission 03 crosses east over the bridge, reaches the radar array,
+    // then continues through the northern clearing to extraction.
+    pathLine=missionIndex===3?[
+      {x:114,y:576},{x:224,y:527},{x:363,y:458},{x:500,y:370},
+      {x:588,y:330},{x:657,y:330},{x:735,y:394},{x:815,y:486},
+      {x:910,y:478},{x:920,y:365},{x:913,y:262},{x:913,y:157}
+    ]:missionIndex===2?[{x:895,y:560},{x:807,y:482},{x:744,y:411},{x:684,y:331},
       {x:624,y:331},{x:565,y:331},{x:453,y:266},{x:347,y:240},{x:250,y:239},
       {x:118,y:239},{x:93,y:166},{x:160,y:95},{x:319,y:91}]:
       [{x:92,y:590},{x:227,y:539},{x:355,y:443},{x:498,y:359},
@@ -229,9 +236,10 @@
     trees=[];rocks=[];
     terrain=document.createElement('canvas');terrain.width=MW;terrain.height=MH;
     const g=terrain.getContext('2d');g.imageSmoothingEnabled=false;
-    g.fillStyle=missionIndex===2?'#536b43':'#60793c';g.fillRect(0,0,MW,MH);
-    // A distinctive, original dithered 16-bit green jungle ground.
-    const greens=missionIndex===2?['#536d44','#435e40','#677b47','#5b7341','#71824b','#3d5b39','#829253']:
+    g.fillStyle=missionIndex===3?'#405e47':missionIndex===2?'#536b43':'#60793c';g.fillRect(0,0,MW,MH);
+    // Dark, marshy radar approach for 03; preserve both earlier jungle palettes.
+    const greens=missionIndex===3?['#375841','#34523d','#4d6b4e','#395c48','#62815b','#294a39','#75916b']:
+      missionIndex===2?['#536d44','#435e40','#677b47','#5b7341','#71824b','#3d5b39','#829253']:
       ['#6b843d','#546d35','#5b7539','#64813d','#779248','#4b682f','#819b50'];
     for(let y=0;y<MH;y+=4) for(let x=0;x<MW;x+=4){
       const rr=rng(),distance=lineDistance(x,y,pathLine);
@@ -283,7 +291,9 @@
       const x=rnd(10,MW-10),y=rnd(10,MH-10),r=rnd(10,19);
       if(lineDistance(x,y,pathLine)<42+r*.4) continue;
       if(Math.abs(x-riverX(y))<44+r) continue;
-      if(missionIndex===2){
+      if(missionIndex===3){
+        if(dist(x,y,114,576)<85||dist(x,y,861,436)<90||dist(x,y,extraction.x,extraction.y)<70)continue;
+      }else if(missionIndex===2){
         if(dist(x,y,900,566)<84||dist(x,y,204,185)<80||dist(x,y,extraction.x,extraction.y)<52)continue;
       }else if(dist(x,y,110,576)<70||dist(x,y,885,145)<81) continue;
       if(trees.some(t=>dist(x,y,t.x,t.y)<(r+t.r)*.68))continue;
@@ -350,7 +360,9 @@
   function blocked(x,y,margin=4){
     if(x<12||y<12||x>MW-13||y>MH-13) return true;
     if(inRiver(x,y)&&!onBridge(x,y))return true;
-    if(missionIndex===2){
+    if(missionIndex===3){
+      if(x>826-margin&&x<898+margin&&y>407-margin&&y<465+margin)return true;
+    }else if(missionIndex===2){
       if(x>165-margin&&x<246+margin&&y>150-margin&&y<215+margin)return true;
     }else if(x>858-margin&&x<919+margin&&y>114-margin&&y<166+margin)return true;
     for(const t of trees){if(Math.abs(x-t.x)>t.r+margin+3||Math.abs(y-t.y)>t.r+margin+3)continue;if(dist(x,y,t.x,t.y)<t.r*.72+margin)return true;}
@@ -432,33 +444,59 @@
     return smooth;
   }
 
+  function spawnEnemy(x,y,id){
+    return {x,y,homeX:x,homeY:y,id,health:1,alive:true,
+      dir:(id*2.2)%6.28,fire:rand(.5,1.4),wander:rand(.7,3),patrolX:x,patrolY:y,seen:false,
+      tactic:'patrol',alert:0,aimTime:0,suppressed:0,coverTime:0,coverCooldown:0,
+      coverPath:[],investigatePath:[],investigateTimer:0,lastKnown:null,burstFlash:0};
+  }
+  function radarReinforcements(){
+    if(missionIndex!==3||reinforcementsSent)return;
+    reinforcementsSent=true;
+    // New patrols enter from three safe track junctions, only after sabotage.
+    for(const [x,y] of [[933,248],[941,336],[776,521]]){
+      const point=walkNearest(x,y);
+      enemies.push(spawnEnemy(point.x*CELL+CELL/2,point.y*CELL+CELL/2,enemies.length));
+    }
+    alertEnemies(extraction.x,extraction.y,185);
+    addParticles(bunker.x+bunker.w/2,bunker.y-12,'#f1b251',22,65,'spark');
+  }
   function resetMission(){
-    // No level selector, replay, or backwards travel in the campaign.
-    if(career.nextMission>2){state='title';return;}
+    // Operations already cleared can never be restarted or selected.
+    if(career.nextMission>CAMPAIGN_MISSIONS){state='title';return;}
     missionIndex=career.nextMission;
+    extraction=missionIndex===3?{x:913,y:157,r:27}:{x:319,y:91,r:25};
     if(renderedMission!==missionIndex)generateTerrain();
     state='playing';mode='move';selected=-1;split=false;clock=0;started=performance.now()/1000;
     cancelGesture();shotClock=0;score=0;kills=0;grenades=3;freeze=0;playerShots=0;
+    reinforcementsSent=false;
     missionLossStart=career.fallen.length;
     afterAction={mission:missionIndex,fallen:[],promotions:[],newRecruits:[],score:0};
-    const insertion=missionIndex===2?[[901,566],[887,580],[915,586]]:[[111,573],[95,592],[120,604]];
+    const insertion=missionIndex===3?[[114,575],[96,591],[130,589]]:
+      missionIndex===2?[[901,566],[887,580],[915,586]]:[[111,573],[95,592],[120,604]];
     const people=ensureDeployment();
     soldiers=people.map((m,i)=>({name:m.name,careerId:m.id,x:insertion[i][0],y:insertion[i][1],
       alive:true,rank:m.rank,fire:i*.05,path:[],face:-.6,id:i,team:'A',
       color:['#4f803d','#637e3d','#779447'][i]}));
-    const posts=missionIndex===2?
+    const posts=missionIndex===3?[
+      [294,505],[415,410],[527,359],[668,333],[746,394],[793,494],
+      [919,489],[929,359],[893,281],[872,196],[752,521],[840,544]
+    ]:missionIndex===2?
       [[796,457],[733,390],[667,320],[562,318],[441,275],[346,213],[262,261],[112,200],[275,150],[202,236]]:
       [[287,498],[392,429],[501,344],[565,330],[701,282],[775,239],[822,197],[906,238],[863,315]];
-    enemies=posts.map((p,i)=>({x:p[0],y:p[1],homeX:p[0],homeY:p[1],id:i,health:1,alive:true,
-      dir:(i*2.2)%6.28,fire:rand(.5,1.4),wander:rand(.7,3),patrolX:p[0],patrolY:p[1],seen:false,
-      tactic:'patrol',alert:0,aimTime:0,suppressed:0,coverTime:0,coverCooldown:0,
-      coverPath:[],investigatePath:[],investigateTimer:0,lastKnown:null,burstFlash:0}));
-    bunker=missionIndex===2?{x:174,y:157,w:67,h:53,hp:10,maxHp:10,dead:false,kind:'depot'}:
+    enemies=posts.map((p,i)=>{
+      const point=missionIndex===3?walkNearest(p[0],p[1]):null;
+      return spawnEnemy(point?point.x*CELL+CELL/2:p[0],
+        point?point.y*CELL+CELL/2:p[1],i);
+    });
+    bunker=missionIndex===3?{x:826,y:407,w:72,h:58,hp:12,maxHp:12,dead:false,kind:'radar'}:
+      missionIndex===2?{x:174,y:157,w:67,h:53,hp:10,maxHp:10,dead:false,kind:'depot'}:
       {x:871,y:119,w:67,h:53,hp:8,maxHp:8,dead:false,kind:'radio'};
-    ammo=missionIndex===2?{x:746,y:398,taken:false}:{x:461,y:371,taken:false};
-    extraction={x:319,y:91,r:25};
+    ammo=missionIndex===3?{x:517,y:371,taken:false}:
+      missionIndex===2?{x:746,y:398,taken:false}:{x:461,y:371,taken:false};
     bullets=[];bombs=[];particles=[];decals=[];gunEffects=[];fallenBodies=[];
-    message=missionIndex===2?'DESTROY THE DEPOT  /  REACH EXTRACTION':'REACH THE RADIO BUNKER';
+    message=missionIndex===3?'DESTROY RADAR  /  REACH EXTRACTION':
+      missionIndex===2?'DESTROY THE DEPOT  /  REACH EXTRACTION':'REACH THE RADIO BUNKER';
     messageTime=5.2;panHint=7;
     aim={x:bunker.x+bunker.w/2,y:bunker.y+bunker.h/2};
     const lead=soldiers[0];
@@ -783,7 +821,11 @@
     bunker.dead=true;score+=500;
     explodeBunker();
     if(missionIndex===1)finishMission();
-    else {flash('DEPOT DESTROYED! REACH EXTRACTION!',3.8);sound('start');}
+    else if(missionIndex===3){
+      radarReinforcements();
+      flash('RADAR DESTROYED! ENEMY REINFORCEMENTS! REACH EXTRACTION!',4.2);
+      sound('start');
+    }else {flash('DEPOT DESTROYED! REACH EXTRACTION!',3.8);sound('start');}
   }
   function explodeBunker(){
     for(let i=0;i<4;i++)addParticles(bunker.x+rand(0,bunker.w),bunker.y+rand(0,bunker.h),'#f3b95c',20,100,'explosion');
@@ -954,7 +996,7 @@
     for(let i=decals.length-1;i>=0;i--){decals[i].life-=dt;if(decals[i].life<=0)decals.splice(i,1);}
     for(let i=gunEffects.length-1;i>=0;i--){gunEffects[i].life-=dt;if(gunEffects[i].life<=0)gunEffects.splice(i,1);}
     for(let i=fallenBodies.length-1;i>=0;i--){fallenBodies[i].life-=dt;if(fallenBodies[i].life<=0)fallenBodies.splice(i,1);}
-    if(state==='playing'&&missionIndex===2&&bunker.dead&&
+    if(state==='playing'&&missionIndex>1&&bunker.dead&&
        soldiers.some(s=>s.alive&&dist(s.x,s.y,extraction.x,extraction.y)<extraction.r)){
       finishMission();
     }
@@ -1005,6 +1047,40 @@
   function drawBunker(){
     const b=bunker,x=b.x,y=b.y,w=b.w,h=b.h;
     rect(x-7,y+h-1,w+13,11,'#26301f');
+    if(b.kind==='radar'){
+      // A distinct original pixel-art radar array with a pulsing sweep.
+      if(b.dead){
+        rect(x-6,y-5,w+12,h+12,'#30382f');
+        rect(x+2,y+3,w-4,h-8,'#1b2e2a');
+        for(let i=0;i<19;i++)rect(x+(i*17)%w,y+(i*11)%h,5+i%4,3,
+          i%2?'#7b6750':'#425747');
+        rect(x+w/2-13,y+19,26,5,'#4b564b');
+        return;
+      }
+      rect(x-8,y-7,w+16,h+13,'#1e342c');
+      rect(x,y,w,h,'#3d5550');
+      rect(x+4,y+4,w-8,h-8,'#68817a');
+      for(let i=0;i<6;i++)rect(x+6,y+7+i*8,w-12,2,i%2?'#50695d':'#8ba194');
+      // Reinforced bolts and signal cabling on the upper platform.
+      for(const sx of [x+8,x+w-12])for(const sy of [y+8,y+h-12])
+        rect(sx,sy,4,4,'#d1bf7b');
+      rect(x+26,y+14,22,24,'#233e37');
+      rect(x+30,y+18,14,16,'#526f67');
+      rect(x+34,y+20,6,12,'#d1c57e');
+      const sweep=Math.round(Math.sin(clock*2.6)*12);
+      rect(x+36+sweep-14,y-13,28,5,'#e0d18d');
+      rect(x+36+sweep-9,y-16,18,3,'#8aa99b');
+      rect(x+35,y-11,4,25,'#263c34');
+      if((clock*3|0)%2===0){
+        rect(x+w-11,y+7,5,5,'#d85c3d');
+        rect(x+w-9,y+4,2,2,'#f6b267');
+      }
+      if(b.hp<b.maxHp){
+        rect(x+5,y-23,w-10,4,'#172820');
+        rect(x+5,y-23,(w-10)*clamp(b.hp/b.maxHp,0,1),4,'#eabf62');
+      }
+      return;
+    }
     if(missionIndex===2){
       if(b.dead){
         rect(x-4,y-5,w+7,h+10,'#403c2b');rect(x+4,y+6,w-7,h-11,'#25271f');
@@ -1057,7 +1133,7 @@
     if((clock*3|0)%2===0)stroke(x-11,y-11,23,19,'#eaca71');
   }
   function drawExtraction(){
-    if(missionIndex!==2)return;
+    if(missionIndex===1)return;
     const {x,y}=extraction,active=bunker.dead;
     ctx.save();ctx.strokeStyle=active?'#f4dc86':'#8ba084';ctx.lineWidth=2;
     ctx.globalAlpha=active?(.65+Math.sin(clock*5)*.3):.6;
@@ -1149,17 +1225,19 @@
     ctx.restore();
     // Upper objective banner and directional arrow when off-camera.
     if(state==='playing'){
-      rect(HUD+8,5,182,21,'#152018d9');
-      text(missionIndex===2?(bunker.dead?'02  REACH EXTRACTION':'02  DESTROY SUPPLY DEPOT'):
-        '01  DESTROY RADIO BASE',HUD+16,10,9,C.cream);
-      const objective=missionIndex===2&&bunker.dead?extraction:
+      rect(HUD+8,5,194,21,'#152018d9');
+      const missionObjective=missionIndex===3?(bunker.dead?'03  REACH EXTRACTION':'03  DESTROY RADAR ARRAY'):
+        missionIndex===2?(bunker.dead?'02  REACH EXTRACTION':'02  DESTROY SUPPLY DEPOT'):
+        '01  DESTROY RADIO BASE';
+      text(missionObjective,HUD+16,10,9,C.cream);
+      const objective=missionIndex>1&&bunker.dead?extraction:
         {x:bunker.x+bunker.w/2,y:bunker.y+bunker.h/2};
       const bx=objective.x-cam.x,by=objective.y-cam.y;
-      if((missionIndex===2||!bunker.dead)&&(bx<4||bx>VW-10||by<20||by>VH-14)){
+      if((missionIndex>1||!bunker.dead)&&(bx<4||bx>VW-10||by<20||by>VH-14)){
         const px=clamp(bx,12,VW-14),py=clamp(by,34,VH-18),ang=Math.atan2(by-VH*.5,bx-VW*.5);
         ctx.save();ctx.translate(HUD+px,py);ctx.rotate(ang);
         ctx.fillStyle=C.gold;ctx.beginPath();ctx.moveTo(11,0);ctx.lineTo(-8,-7);ctx.lineTo(-4,0);ctx.lineTo(-8,7);ctx.closePath();ctx.fill();ctx.restore();
-        text(missionIndex===2&&bunker.dead?'EVAC':'TARGET',HUD+px-19,py+10,8,C.gold);
+        text(missionIndex>1&&bunker.dead?'EVAC':'TARGET',HUD+px-19,py+10,8,C.gold);
       }
     }
     if(state==='playing'&&messageTime>0&&message){
@@ -1173,7 +1251,7 @@
     for(const t of trees){const tx=x+t.x/MW*w,ty=y+t.y/MH*h;ctx.fillStyle='#466a31';ctx.fillRect(tx|0,ty|0,2,2);}
     for(let yy=0;yy<h;yy+=2){let xx=x+riverX(yy/h*MH)/MW*w;rect(xx,y+yy,5,2,'#4a858c');}
     rect(x+bunker.x/MW*w,y+bunker.y/MH*h,4,4,bunker.dead?'#5b5b47':'#f6c76b');
-    if(missionIndex===2)rect(x+extraction.x/MW*w-2,y+extraction.y/MH*h-2,5,5,bunker.dead?'#f6e08a':'#6c8d79');
+    if(missionIndex>1)rect(x+extraction.x/MW*w-2,y+extraction.y/MH*h-2,5,5,bunker.dead?'#f6e08a':'#6c8d79');
     for(const e of enemies)if(e.alive)rect(x+e.x/MW*w,y+e.y/MH*h,2,2,'#b75e44');
     for(const s of soldiers)if(s.alive)rect(x+s.x/MW*w,y+s.y/MH*h,3,3,
       split?(s.team==='A'?'#f5d477':'#83d1d8'):'#e4e7b8');
@@ -1185,7 +1263,7 @@
     rect(0,0,HUD,WH,C.hud);rect(HUD-3,0,3,WH,'#0e150e');
     rect(0,0,HUD,38,'#101b15');rect(0,38,HUD,3,'#728246');
     text('GREEN DAWN',8,7,13,C.sand);
-    text(missionIndex===2?'02  DEPOT RAID':'01  JUNGLE ASSAULT',8,24,7,C.mint);
+    text(String(missionIndex).padStart(2,'0')+'  '+operationName(missionIndex),8,24,7,C.mint);
     if(!split){
       rect(5,47,100,18,selected===-1?'#607542':'#303e29');
       stroke(5,47,100,18,selected===-1?'#d4be73':'#65724a');
@@ -1414,7 +1492,7 @@
     text('DAWN',x,74,34,C.gold,'center');
     rect(x-105,112,210,3,'#c6aa65');
     text('ONE WAY CAMPAIGN',x,124,11,C.mint,'center');
-    if(career.nextMission<=2){
+    if(career.nextMission<=CAMPAIGN_MISSIONS){
       text('MISSION '+String(career.nextMission).padStart(2,'0')+'  '+operationName(career.nextMission),x,144,10,C.cream,'center');
       const deploying=deployment().length;
       text(deploying+' DEPLOYING   '+Math.max(0,career.active.length-deploying)+' RESERVE',x,162,9,C.sand,'center');
@@ -1423,8 +1501,8 @@
       rosterStart={x:x-bw/2,y:223,w:(bw-8)/2,h:30};
       memorialStart={x:x+4,y:223,w:(bw-8)/2,h:30};
     }else{
-      text('TWO MISSIONS COMPLETE',x,146,12,C.gold,'center');
-      text('MISSION 03  -  COMING SOON',x,166,10,C.mint,'center');
+      text('THREE MISSIONS COMPLETE',x,146,12,C.gold,'center');
+      text('MISSION 04  -  COMING SOON',x,166,10,C.mint,'center');
       titleStart={x:0,y:0,w:0,h:0};
       rosterStart={x:x-bw/2,y:199,w:(bw-8)/2,h:34};
       memorialStart={x:x+4,y:199,w:(bw-8)/2,h:34};
@@ -1498,7 +1576,7 @@
     text('KILLS '+kills+'   SCORE '+score,x,175,10,C.mint,'center');
     const w=Math.min(246,VW-40);
     resultStart={x:x-w/2,y:197,w,h:33};
-    const label=won?(career.nextMission<=2?'NEXT: '+operationName(career.nextMission):'RETURN TO CAMP'):'REDEPLOY RECRUITS';
+    const label=won?(career.nextMission<=CAMPAIGN_MISSIONS?'NEXT: '+operationName(career.nextMission):'RETURN TO CAMP'):'REDEPLOY RECRUITS';
     button(resultStart.x,resultStart.y,w,33,label,'next',true);
     resultAlt={x:x-w/2,y:239,w,h:29};
     button(resultAlt.x,resultAlt.y,w,29,'THIS MISSION  /  MEMORIAL','memorial',false);
@@ -1573,7 +1651,7 @@
     const p=where(e);Object.assign(pointer,p);pointer.down=true;
     try{canvas.setPointerCapture(e.pointerId);}catch(_){}
     if(state==='title'){
-      if(career.nextMission<=2&&inside(p,titleStart))resetMission();
+      if(career.nextMission<=CAMPAIGN_MISSIONS&&inside(p,titleStart))resetMission();
       else if(inside(p,rosterStart))showArchive('roster');
       else if(inside(p,memorialStart))showArchive('memorial');
       return;
@@ -1592,7 +1670,7 @@
     }
     if(state==='paused'){if(inside(p,resultStart))state='playing';return;}
     if(state==='won'||state==='lost'){
-      if(inside(p,resultStart)){if(state==='won'&&career.nextMission>2)state='title';else resetMission();}
+      if(inside(p,resultStart)){if(state==='won'&&career.nextMission>CAMPAIGN_MISSIONS)state='title';else resetMission();}
       else if(inside(p,resultAlt))enterMemorial(false,state,true);
       return;
     }
@@ -1679,7 +1757,7 @@
       if(state==='playing'){state='paused';cancelGesture();}
       else if(state==='paused')state='playing';return;
     }
-    if(state==='title'&&(e.code==='Enter'||e.code==='Space')){if(career.nextMission<=2){audioInit();resetMission();}return;}
+    if(state==='title'&&(e.code==='Enter'||e.code==='Space')){if(career.nextMission<=CAMPAIGN_MISSIONS){audioInit();resetMission();}return;}
     if((state==='honours'||state==='memorial')&&(e.code==='Enter'||e.code==='Space'||e.code==='Escape')){
       leaveMemorial();return;
     }
@@ -1688,7 +1766,7 @@
       memorialHoldUntil=performance.now()+4000;return;
     }
     if(state==='roster'&&e.code==='Escape'){state='title';return;}
-    if(state==='won'||state==='lost'){if(e.code==='Enter'||e.code==='Space'){audioInit();if(state==='won'&&career.nextMission>2)state='title';else resetMission();}return;}
+    if(state==='won'||state==='lost'){if(e.code==='Enter'||e.code==='Space'){audioInit();if(state==='won'&&career.nextMission>CAMPAIGN_MISSIONS)state='title';else resetMission();}return;}
     if(state!=='playing')return;
     if(e.code==='Digit0')chooseSquad(-1);
     if(e.code==='KeyX')toggleSplit();
@@ -1733,7 +1811,9 @@
   document.addEventListener('visibilitychange',()=>{if(document.hidden)pauseForBackground();});
   window.addEventListener('pagehide',pauseForBackground);
   window.addEventListener('green-dawn-pause',pauseForBackground);
-  loadSave();missionIndex=Math.min(2,career.nextMission);resize();generateTerrain();
+  loadSave();missionIndex=Math.min(CAMPAIGN_MISSIONS,career.nextMission);
+  extraction=missionIndex===3?{x:913,y:157,r:27}:{x:319,y:91,r:25};
+  resize();generateTerrain();
   if(career.pendingHonours){
     // If the app was closed at the ceremony, show it again on return rather
     // than silently skipping the fallen heroes' names.
@@ -1748,7 +1828,7 @@
   cam={x:0,y:MH-VH};
   // Expose a tiny read-only test surface to catch playability regressions.
   Object.defineProperty(window,'GREEN_DAWN_TEST',{value:{
-    get status(){return {state,mission:missionIndex,nextMission:career.nextMission,mode,score,kills,grenades,alive:soldiers.filter(s=>s.alive).length,enemyCount:enemies.filter(e=>e.alive).length,bunkerHp:bunker.hp,bunkerDead:bunker.dead,extraction:{...extraction},completed:career.victories.map(v=>v.mission),camera:{...cam},time:clock};},
+    get status(){return {state,mission:missionIndex,nextMission:career.nextMission,mode,score,kills,grenades,alive:soldiers.filter(s=>s.alive).length,enemyCount:enemies.filter(e=>e.alive).length,bunkerHp:bunker.hp,bunkerDead:bunker.dead,objectiveKind:bunker.kind,reinforcementsSent,extraction:{...extraction},completed:career.victories.map(v=>v.mission),camera:{...cam},time:clock};},
     get controls(){return {pending:!!(gesture&&!gesture.firing),firing:!!(gesture&&gesture.firing),shotsFired:playerShots,aim:{...aim},holdMs:HOLD_TO_FIRE_MS};},
     get roster(){return soldiers.map(s=>({name:s.name,careerId:s.careerId,rank:s.rank,x:s.x,y:s.y,alive:s.alive,team:s.team,followId:s.followId??null,followGap:s.followGap||0,trailPoints:s.trail?.length||0,followGoal:s.followGoal||null,pathLength:s.path.length,destination:s.path.at(-1)||null}));},
     get career(){return JSON.parse(JSON.stringify(career));},

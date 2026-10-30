@@ -24,6 +24,8 @@ jobs:
           cmp index.html android/app/src/main/assets/index.html
           grep -q 'GREEN_DAWN_TEST' android/app/src/main/assets/index.html
           grep -q 'JUNGLE ASSAULT' android/app/src/main/assets/index.html
+      - name: Test campaign and mission progression
+        run: node --test tests/campaign.test.cjs
       - name: Configure Java
         uses: actions/setup-java@v4
         with:
@@ -69,13 +71,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Campaign-v0.10-debug.apk
-          if gh release view v0.10.0 >/dev/null 2>&1; then
-            gh release upload v0.10.0 GreenDawn-Campaign-v0.10-debug.apk --clobber
+          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Campaign-v0.11-debug.apk
+          if gh release view v0.11.0 >/dev/null 2>&1; then
+            gh release upload v0.11.0 GreenDawn-Campaign-v0.11-debug.apk --clobber
           else
-            gh release create v0.10.0 GreenDawn-Campaign-v0.10-debug.apk \
+            gh release create v0.11.0 GreenDawn-Campaign-v0.11-debug.apk \
               --target "$GITHUB_SHA" \
-              --title "Green Dawn v0.10.0 — Android test build" \
-              --notes "Green Dawn v0.10 fixes the post-mission ceremony to show ONLY soldiers killed in the just-completed operation. Military rank chevrons and pixel insignia now accompany names and ranks. Operations with zero losses show no previous casualties. The post-mission report links back to that operation, while Camp > Memorial retains the full historical roll of honour. Mission 01/02, retro jungle graphics, controls, career progression and stored campaign data are preserved. Debug APK: signing may differ from earlier builds; uninstalling deletes local save progress." \
+              --title "Green Dawn v0.11.0 — Android test build" \
+              --notes "Green Dawn v0.11 adds the third playable mission: RADAR BLACKOUT. Move through a new dark-green jungle and timber bridge, destroy the animated enemy radar installation, then reach extraction while enemy reinforcements arrive. Saved v0.10 campaigns with Mission 02 complete can advance immediately into Mission 03. No mission selection/replay; careers, memorials, retro artwork and controls are preserved. GitHub Actions now checks campaign progression and memorial logic before building. Debug APK signing may vary; uninstalling an earlier build deletes its locally saved campaign." \
               --prerelease
           fi

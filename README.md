@@ -1,34 +1,31 @@
-# GREEN DAWN — Heroes Lost in Action (v0.10)
+# GREEN DAWN — Radar Blackout (v0.11)
 
-Original 16-bit-inspired jungle squad tactics game for Android. Mission 01 Jungle Assault and Mission 02 Depot Raid, with an irreversible campaign, named recruits, individual promotions, permanent casualties, and an animated memorial scroll. This is an original work inspired by the feel of classic Amiga action games.
+Original, offline 16-bit-inspired Android jungle squad tactics. Three handcrafted missions, permanent soldier careers, Alpha/Bravo teams, and a one-way campaign. The game is original; it contains no artwork or sound from Cannon Fodder.
 
-## Download Green Dawn v0.10 for Android
+## Download Android v0.11
 
-**[Direct APK download](https://github.com/MaviUK/Green-Dawn/releases/download/v0.10.0/GreenDawn-Campaign-v0.10-debug.apk)**
+**[Download the v0.11 debug APK](https://github.com/MaviUK/Green-Dawn/releases/download/v0.11.0/GreenDawn-Campaign-v0.11-debug.apk)**
 
-Download using **Chrome** on Android, then go to **My Files → Downloads**, tap the APK, and install. This is a testing APK, not yet a signed Play Store release.
+On Samsung Android, open the link in Chrome and install the APK from **My Files → Downloads**. This is a testing APK, not a Play Store release.
 
-**Important update note:** GitHub Actions may use different temporary debug-signing certificates for each release. If Android says the existing install conflicts with v0.10, uninstall the old test version first. This *deletes its local save*, including existing soldier ranks and memorial records. Future versions need stable signing and a backup/export flow before they should be considered safe for permanent saves.
+**Save warning:** The existing campaign uses local storage under green-dawn-campaign-v1. In-place upgrades preserve that save, but GitHub Actions may sign different debug builds with different temporary certificates. If Android requires you to uninstall the old build to install this one, **uninstalling permanently deletes your existing local campaign, recruits, promotions, and memorial**. Do not uninstall without accepting this loss. Stable APK signing and a save export are not yet implemented.
 
-## NEW — HEROES LOST IN ACTION
+## NEW in v0.11 — Mission 03: Radar Blackout
 
-- **Automatic remembrance after every mission:** whether the mission succeeds or the squad is wiped out, the memorial appears before the post-mission report. Players must acknowledge the ceremony to continue.
-- **Proper pixel-art parchment:** a full-screen, unrolling-style aged paper honour roll with wooden finials and a dark jungle backdrop.
-- **Pixel-art insignia:** military chevrons (^) for enlisted ranks, NCO rocker marks, warrant diamond, and officer bars or stars appear alongside each soldier's full final rank, name, and operation.
-- **Mission-specific ceremony:** only the casualties of the operation just completed are shown after that mission, never earlier campaign deaths.
-- **Zero-loss operations:** the ceremony confirms that all deployed personnel returned even if the separate historical memorial contains losses.
-- **Automatically scrolling list**, with touchscreen swipe to scroll manually and a Continue button; Android Back or Enter also advances.
-- **Never miss the ceremony:** if the app closes before a post-mission memorial is acknowledged, the memorial is shown again at the next launch.
-- **Separate camp archive:** the Memorial button at camp opens the full historical roll of honour; the post-mission report opens only that operation's fallen. Barracks still displays living soldiers and ranks.
+- **Play after Depot Raid**: a cleared Mission 02 advances into a newly playable third operation automatically, including careers saved with v0.10.
+- **Original radar-jungle map**: enter from the southwestern trail, cross the timber bridge, attack a fortified radar compound, then reach the northeastern extraction zone.
+- **Two-stage objective**: destroy the radar array by gunfire or grenades, then move at least one surviving soldier into the extraction area. Merely destroying the target does not end the mission.
+- **Counterattack**: three new enemy patrols enter from reachable track junctions after the radar is destroyed. Original guards, grenades, suppression, squad pathfinding, and cover systems remain in use.
+- **New art**: a dark-green jungle palette, pixel radar antenna, blinking warning light, animated sweep, target damage indicator, and destroyed radar wreckage.
+- **Campaign continuity**: no level selection or replay. Clear operations 01 → 02 → 03 in order. Mission 04 is not built yet. Promotions, new recruits, permanent casualties, and score carry through existing records.
+- **Regression checks**: GitHub Actions runs simulation tests for returning v0.10 players, progression through three missions, reinforcements, no replay, zero-casualty and casualty memorials, and the full historical roll before building the APK.
 
-## Campaign and controls
+## Existing memorial and gameplay
 
-Start with Jax, Ace and Pip as recruits. Survivors gain a rank on completing an operation; two new recruits join the reserve after each victory. Dead soldiers are never resurrected. A complete wipeout allows new emergency recruits to retry the same current mission. The campaign moves forward only: 01 → 02, then the not-yet-built 03 Coming Soon. Completed missions cannot be replayed.
+After each mission, the automatic parchment memorial shows **only the soldiers lost in that operation**; a zero-loss operation never lists older casualties. Individual ranks use original pixel chevrons and military insignia. **Camp → Memorial** separately retains all previous losses, and **Camp → Barracks** shows living troops.
 
-In landscape, **tap** the ground to move; **hold ~240 ms** to fire, **drag** to aim, and **release** to stop. SPLIT/ JOIN divides or reunites Alpha/Bravo teams; team tabs and soldier names select controls. FRAG throws a grenade. The squad leader charts the route and followers trail across bridge and jungle.
+In landscape, **tap** to move, **hold around 240 ms** to fire, **drag** to aim, and **release** to stop. SPLIT/JOIN controls Alpha and Bravo squads, while FRAG throws a grenade. Survivors are promoted and reinforcements join reserves after victories. A wipeout allows new emergency recruits to retry the current operation; previous victories cannot be replayed.
 
 ## Technical notes
 
-The self-contained browser game is in `index.html`, and an identical copy ships offline in `android/app/src/main/assets/index.html`. GitHub Actions builds the Android APK and publishes a versioned release. This version uses the existing local career storage key `green-dawn-campaign-v1`, without resetting a v0.8 career on an in-place upgrade.
-
-Android app ID: `uk.co.greendawn.jungle`; version 0.9.0; minimum Android 8.0. No ads, accounts, tracking or Internet permission. Artwork and synthesized sounds are original.
+The game is self-contained in index.html with an identical offline copy in android/app/src/main/assets/index.html. GitHub Actions validates both copies, runs tests, builds a debug APK, and publishes a versioned release. Android package uk.co.greendawn.jungle, version 0.11.0, minimum Android 8. No ads, accounts, tracking, or Internet permission.
