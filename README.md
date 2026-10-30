@@ -1,35 +1,37 @@
 # GREEN DAWN — Mission 01: Jungle Assault
 
-A playable original retro 16-bit-inspired Android squad-tactics game. Lead Jax, Ace and Pip through jungle patrols, collect ammunition and destroy the radio bunker. All art, code and sound effects are original.
+An original 16-bit-inspired, top-down squad tactics game for Android. Lead Jax, Ace and Pip through jungle patrols and destroy the enemy radio bunker. This is an original work, not a reproduction of Cannon Fodder game assets, music, or code.
 
-## Android v0.5 — marching formations
+## Install the latest Android game
 
-**[Direct Android APK download](https://github.com/MaviUK/Green-Dawn/releases/download/v0.5.0/GreenDawn-Mission01-v0.5-debug.apk)**
+**[Download Green Dawn v0.6 (APK)](https://github.com/MaviUK/Green-Dawn/releases/download/v0.6.0/GreenDawn-Mission01-v0.6-debug.apk)**
 
-Open the link in Chrome. Then open **My Files → Downloads**, tap the APK, and install. This is a debug build for testing, not the Play Store release.
+Open the link in **Chrome**, then **Samsung My Files → Downloads → GreenDawn-Mission01-v0.6-debug.apk → Install**. This is a test APK, not a Google Play release.
 
-**Older-version upgrade warning:** GitHub's debug signing certificate is generated for each build. Android may refuse to install v0.5 over v0.4 with a signature-conflict message. If that happens, uninstall the old Green Dawn first, then install the new APK. Uninstalling will erase that installation's locally saved mission progress. A fixed signing identity is planned before production distribution.
+**Note:** Each cloud debug build may be signed with a different debug key. If Android says the app conflicts with an installed version, uninstall the previous test copy first and then install v0.6. Uninstalling clears the previous version's locally saved progress. Production signing and safe upgrades will be handled before public release.
 
 ## Controls
 
-- **Tap ground:** issue a move order.
-- **Hold ground ~240 ms:** fire in that direction; drag to aim; release to stop.
-- **SPLIT:** divide the soldiers into Alpha and Bravo. **A** and **B** select either squad.
-- **Tap soldier name:** control just that soldier. **Hold name:** transfer that soldier to the other squad (when possible).
-- **JOIN:** reunite at the selected squad leader's position.
-- **FRAG:** arm a grenade, then tap where to throw. **PAUSE** to suspend.
+- **Tap battlefield:** move the controlled squad or soldier.
+- **Hold battlefield ~0.24s:** fire continuously; **drag** while holding to aim; **release** to stop.
+- **SPLIT / JOIN:** divide and reunite Alpha and Bravo. **A / B** tabs select teams, and tapping a soldier's name selects one soldier.
+- **Hold a soldier's name:** transfer them between Alpha and Bravo where team size permits.
+- **FRAG:** tap button to arm a grenade, then tap the destination.
+- **SFX / PAUSE:** toggle sound or suspend the mission.
 
-## New movement behaviour in v0.5
+## What's new in v0.6
 
-- The squad leader chooses one safe route. Followers chase sampled points **19px and 38px behind the leader's actual footsteps**.
-- Followers navigate around obstacles and use the bridge rather than cutting across impassable riverbank.
-- Marchers move in a natural single-file formation and settle at staggered positions when stopped.
-- Independent Alpha/Bravo orders are maintained. Transferring a soldier to the other team redirects them towards that team's leader.
-- A separate individual order detaches that soldier from the formation; the old squad retains its last destination.
-- If a leader is killed, the first surviving follower takes command of that moving group.
+- **Enemy awareness:** guards patrol, investigate nearby gunshots, and engage targets only when they have clear sight; trees and bunker walls interrupt gunfire.
+- **Suppression and cover:** close misses make guards duck; some then move towards nearby trees to seek cover.
+- **Combat feedback:** brighter directional muzzle flashes, fast bullet tracers, impact sparks, and animated fallen soldier bodies.
+- **Better balance:** guards briefly aim before firing, with moderately slower shots compared to v0.5.
+- The previous **leader-follow formations**, bridge navigation, separate squad orders, regrouping, and tap/hold touchscreen scheme remain intact.
 
-## Source and privacy
+## Build and privacy
 
-`index.html` is the browser-playable game, and `android/app/src/main/assets/index.html` is the identical offline game built into the APK. `android/app/src/main/java/uk/co/greendawn/jungle/MainActivity.java` hosts it in an Android fullscreen landscape WebView. GitHub Actions compiles the APK and publishes the versioned GitHub Release automatically.
+- `index.html` is a self-contained, browser-playable version.
+- `android/app/src/main/assets/index.html` is identical and bundled offline in the APK.
+- `android/app/src/main/java/uk/co/greendawn/jungle/MainActivity.java` provides the landscape fullscreen Android wrapper.
+- `.github/workflows/android-debug-apk.yml` builds APKs and publishes versioned GitHub Releases.
 
-Android package: `uk.co.greendawn.jungle`; version 0.5.0; minimum Android 8.0. No Internet permission, tracking, advertising or accounts. Game progress lives locally on your phone.
+Android package: `uk.co.greendawn.jungle`; version 0.6.0; minimum API 26 (Android 8.0). No accounts, ads, analytics or Internet permission. Saves are local.

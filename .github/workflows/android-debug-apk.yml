@@ -69,13 +69,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Mission01-v0.5-debug.apk
-          if gh release view v0.5.0 >/dev/null 2>&1; then
-            gh release upload v0.5.0 GreenDawn-Mission01-v0.5-debug.apk --clobber
+          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Mission01-v0.6-debug.apk
+          if gh release view v0.6.0 >/dev/null 2>&1; then
+            gh release upload v0.6.0 GreenDawn-Mission01-v0.6-debug.apk --clobber
           else
-            gh release create v0.5.0 GreenDawn-Mission01-v0.5-debug.apk \
+            gh release create v0.6.0 GreenDawn-Mission01-v0.6-debug.apk \
               --target "$GITHUB_SHA" \
-              --title "Green Dawn v0.5.0 — Android test build" \
-              --notes "Mission 01 adds natural leader-following formations: Ace and Pip trail their leader's footsteps through jungle and over bridges, surviving followers promote a new leader after casualties, split Alpha/Bravo squads and JOIN remain. Tap to move, hold to fire. Original pixel art; install via Samsung My Files." \
+              --title "Green Dawn v0.6.0 — Android test build" \
+              --notes "Version 0.6: clearer pixel muzzle flashes, bullet tracers and impact sparks, visible fallen soldiers, guards that investigate shots, line-of-sight through tree cover, and suppression/cover reactions. Keeps v0.5 split squads, footstep formations, and tap-to-move hold-to-fire controls." \
               --prerelease
           fi

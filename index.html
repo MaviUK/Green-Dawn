@@ -32,7 +32,7 @@
   </main>
   <script>
 /*
-  GREEN DAWN v0.3 — MISSION 01: JUNGLE ASSAULT
+  GREEN DAWN v0.6 — MISSION 01: JUNGLE ASSAULT
   Original game, procedural pixel art, original gameplay code and synthesized SFX.
   No art/music/code from Cannon Fodder or any other game is used.
 */
@@ -46,7 +46,8 @@
   const C = { ink:'#101712', edge:'#0b100d', dark:'#1c261c', steel:'#293428', olive:'#43572e',
     green:'#90b963', mint:'#c2db94', cream:'#f5e6bd', sand:'#e4c873', gold:'#f3c95b',
     danger:'#e27e52', hud:'#20291f', red:'#a73d32', shadow:'#162015' };
-  const DIFFICULTY = { enemySight:142, enemyFire:1.38, gunRate:.18, moveSpeed:73, grenadeRadius:53 };
+  const DIFFICULTY = { enemySight:142, enemyFire:1.50, gunRate:.18, moveSpeed:73, grenadeRadius:53 };
+  const ENEMY_AI = {hearing:198, alertDuration:4.5, coverRadius:80, suppressionRadius:21};
   let W=512,VW=402,VH=CTRL_Y,state='title',mode='move',selected=-1,split=false;
   let cam={x:0,y:0}, pointer={x:0,y:0,wx:0,wy:0,down:false,firePointer:null};
   const HOLD_TO_FIRE_MS=240; // one finger: quick tap moves, long hold shoots
@@ -54,6 +55,7 @@
   let gesture=null; // {id,started,x,y,wx,wy,firing}; active battlefield finger only
   let hudPress=null; // hold a soldier row to transfer between Alpha and Bravo
   let soldiers=[],enemies=[],bullets=[],bombs=[],particles=[],decals=[],trees=[],rocks=[];
+  let gunEffects=[],fallenBodies=[]; // tiny transient pixel art combat effects
   let bunker,ammo,terrain,mapData=[],clock=0,shotClock=0,fireUntil=0,aim={x:0,y:0};
   let score=0,kills=0,grenades=3,started=0,freeze=0,message='',messageTime=0,panHint=0;
   let timeNow=0,mouseRight=false,hasAudio=false,audioOn=true,audioCtx=null,objectiveArrow=0;
@@ -309,10 +311,13 @@
       {name:'PIP',x:120,y:604,alive:true,rank:1,fire:.1,path:[],face:-.6,id:2,team:'A',color:'#779447'}
     ];
     const posts=[[287,498],[392,429],[501,344],[565,330],[701,282],[775,239],[822,197],[906,238],[863,315]];
-    enemies=posts.map((p,i)=>({x:p[0],y:p[1],homeX:p[0],homeY:p[1],id:i,health:1,alive:true,dir:(i*2.2)%6.28,fire:rand(.4,1.8),wander:rand(.7,3),patrolX:p[0],patrolY:p[1],seen:false}));
+    enemies=posts.map((p,i)=>({x:p[0],y:p[1],homeX:p[0],homeY:p[1],id:i,health:1,alive:true,
+      dir:(i*2.2)%6.28,fire:rand(.5,1.4),wander:rand(.7,3),patrolX:p[0],patrolY:p[1],seen:false,
+      tactic:'patrol',alert:0,aimTime:0,suppressed:0,coverTime:0,coverCooldown:0,
+      coverPath:[],investigatePath:[],investigateTimer:0,lastKnown:null,burstFlash:0}));
     bunker={x:871,y:119,w:67,h:53,hp:8,maxHp:8,dead:false};
     ammo={x:461,y:371,taken:false};
-    bullets=[];bombs=[];particles=[];decals=[];
+    bullets=[];bombs=[];particles=[];decals=[];gunEffects=[];fallenBodies=[];
     message='REACH THE RADIO BUNKER';messageTime=5.2;panHint=7;
     aim={x:700,y:300};
     cam.x=clamp(111-VW*.34,0,MW-VW);cam.y=clamp(573-VH*.70,0,MH-VH);
@@ -531,12 +536,48 @@
     mode='move';fireUntil=0;sound('throw');flash('FIRE IN THE HOLE!',1.3);
   }
 
+  // Bullets and enemy sight are stopped by trunks and solid bunker walls;
+  // unlike movement, open water is not a barrier to gunfire.
+  function shotBlocked(x,y){
+    if(!bunker.dead&&x>bunker.x&&x<bunker.x+bunker.w&&y>bunker.y&&y<bunker.y+bunker.h)return true;
+    for(const t of trees){
+      const r=Math.max(5,t.r*.56);
+      if(Math.abs(x-t.x)>r||Math.abs(y-t.y)>r)continue;
+      if(dist(x,y,t.x,t.y)<r)return true;
+    }
+    return false;
+  }
+  function clearShot(a,b){
+    const length=pointDist(a,b),n=Math.ceil(length/7);
+    for(let i=2;i<n-1;i++){
+      const f=i/n;
+      if(shotBlocked(a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f))return false;
+    }
+    return true;
+  }
+  function effect(x,y,kind,angle=0){
+    gunEffects.push({x,y,kind,angle,life:kind==='muzzle'?.12:.24,max:kind==='muzzle'?.12:.24});
+    if(gunEffects.length>90)gunEffects.splice(0,gunEffects.length-90);
+  }
+  function alertEnemies(x,y,radius=ENEMY_AI.hearing){
+    for(const e of enemies){
+      if(!e.alive||dist(e.x,e.y,x,y)>radius)continue;
+      e.alert=Math.max(e.alert,ENEMY_AI.alertDuration);
+      e.lastKnown={x,y};
+      e.wander=0;
+    }
+  }
   function fireBullet(from,at,owner){
-    const direct=Math.atan2(at.y-from.y,at.x-from.x),accuracy=owner==='player'?.046:.105;
+    const direct=Math.atan2(at.y-from.y,at.x-from.x),accuracy=owner==='player'?.046:.112;
     const angle=direct+rand(-accuracy,accuracy);
     const speed=owner==='player'?330:173;
     bullets.push({x:from.x,y:from.y,vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed,owner,life:owner==='player'?1.05:1.7});
-    if(owner==='player')playerShots++;
+    if(owner==='player'){
+      playerShots++;
+      // The enemies hear nearby gunshots even when a tree hides the shooter.
+      alertEnemies(from.x,from.y);
+    }
+    effect(from.x+Math.cos(angle)*7,from.y+Math.sin(angle)*7,'muzzle',angle);
     addParticles(from.x+Math.cos(angle)*7,from.y+Math.sin(angle)*7,'#fbd65d',2,22,'flash');
   }
   function addParticles(x,y,color,num=9,velocity=30,kind='spark'){
@@ -559,6 +600,7 @@
     }
     if(s.followId!==null&&s.followId!==undefined)detachFromLeader(s,false);
     s.alive=false;s.path=[];
+    fallenBodies.push({x:s.x,y:s.y,face:s.face||0,enemy:false,life:22});
     decals.push({x:s.x,y:s.y,color:'#543f2d',life:60});
     addParticles(s.x,s.y,'#b56a48',15,42,'spark');sound('down');flash(s.name+' HAS FALLEN',3);
     if(selected===s.id)selected=split?s.team:-1;
@@ -568,6 +610,10 @@
   }
   function killEnemy(e){
     if(!e.alive)return;e.alive=false;kills++;score+=100;
+    // Nearby guards investigate a casualty rather than remaining oblivious.
+    alertEnemies(e.x,e.y,112);
+    fallenBodies.push({x:e.x,y:e.y,face:e.dir||0,enemy:true,life:20});
+    effect(e.x,e.y,'impact');
     decals.push({x:e.x,y:e.y,color:'#633f32',life:50});
     addParticles(e.x,e.y,'#bd673b',14,36,'spark');sound('hit');
   }
@@ -595,31 +641,111 @@
     decals.push({x:bunker.x+bunker.w/2,y:bunker.y+bunker.h/2,color:'#3a3022',life:999,r:32});
   }
 
+  // Tactical enemy decisions. No map-wide omniscience: guards only engage
+  // soldiers within sight, and investigate sounds at the last heard position.
+  function enemyMove(e,x,y,dt,speed){
+    const dx=x-e.x,dy=y-e.y,d=Math.hypot(dx,dy);
+    if(d<3)return true;
+    const step=Math.min(d,dt*speed),nx=e.x+dx/d*step,ny=e.y+dy/d*step;
+    e.dir=Math.atan2(dy,dx);
+    if(blocked(nx,ny,4))return false;
+    e.x=nx;e.y=ny;return true;
+  }
+  function enemyFollowPath(e,path,dt,speed){
+    while(path.length&&dist(e.x,e.y,path[0].x,path[0].y)<5)path.shift();
+    if(!path.length)return false;
+    if(!enemyMove(e,path[0].x,path[0].y,dt,speed))path.shift();
+    return path.length>0;
+  }
+  function enemyFindCover(e,target){
+    // Search nearby tree trunks, choosing a reachable point on their far side
+    // relative to the visible soldier. This gives genuine, shootable cover.
+    let best=null,bestCost=Infinity;
+    for(const t of trees){
+      const near=dist(e.x,e.y,t.x,t.y);
+      if(near>ENEMY_AI.coverRadius)continue;
+      const fromThreat=dist(t.x,t.y,target.x,target.y)||1;
+      const safe={x:t.x+(t.x-target.x)/fromThreat*(t.r*.72+12),
+        y:t.y+(t.y-target.y)/fromThreat*(t.r*.72+12)};
+      if(blocked(safe.x,safe.y,4))continue;
+      if(clearShot(target,safe))continue;
+      const cost=near+dist(e.x,e.y,safe.x,safe.y)*.65;
+      if(cost<bestCost){bestCost=cost;best=safe;}
+    }
+    if(!best){e.coverCooldown=1.8;return false;}
+    const path=pathfind(e.x,e.y,best.x,best.y);
+    if(!path.length){e.coverCooldown=1.8;return false;}
+    e.coverPath=path;e.coverTime=3.5;e.coverCooldown=6.0;
+    e.investigatePath=[];return true;
+  }
+  function updateEnemies(dt,live){
+    for(const e of enemies){
+      if(!e.alive)continue;
+      e.wander-=dt;e.fire-=dt;e.alert=Math.max(0,e.alert-dt);
+      e.suppressed=Math.max(0,e.suppressed-dt);
+      e.coverTime=Math.max(0,e.coverTime-dt);
+      e.coverCooldown=Math.max(0,e.coverCooldown-dt);
+      e.investigateTimer=Math.max(0,e.investigateTimer-dt);
+      const visible=live.filter(s=>dist(e.x,e.y,s.x,s.y)<DIFFICULTY.enemySight&&clearShot(e,s));
+      let target=null,nearest=Infinity;
+      for(const s of visible){const d=pointDist(e,s);if(d<nearest){target=s;nearest=d;}}
+      e.seen=!!target;
+      if(target){
+        e.lastKnown={x:target.x,y:target.y};e.alert=ENEMY_AI.alertDuration;
+        e.aimTime=Math.min(1,e.aimTime+dt);
+      }else e.aimTime=0;
+      if(e.suppressed>.35&&e.coverCooldown<=0&&target)enemyFindCover(e,target);
+      if(e.coverPath.length){
+        e.tactic='seeking cover';
+        const finalCover=e.coverPath[e.coverPath.length-1];
+        const moving=enemyFollowPath(e,e.coverPath,dt,29);
+        if(!moving){
+          // Only crouch behind cover if the guard actually reached that cover.
+          if(dist(e.x,e.y,finalCover.x,finalCover.y)<13)e.coverTime=Math.max(e.coverTime,1.4);
+          else e.coverTime=0;
+        }
+        continue; // no accurate fire while running to cover
+      }
+      if(e.coverTime>0){
+        e.tactic='in cover';
+      } else if(target){
+        e.tactic='engaging';
+        e.dir=Math.atan2(target.y-e.y,target.x-e.x);
+        // Advance deliberately instead of rushing into the player's squad.
+        if(nearest>103)enemyMove(e,target.x,target.y,dt,13);
+      } else if(e.alert>0&&e.lastKnown){
+        e.tactic='investigating';
+        if(dist(e.x,e.y,e.lastKnown.x,e.lastKnown.y)>27){
+          if(e.investigateTimer===0){
+            e.investigatePath=pathfind(e.x,e.y,e.lastKnown.x,e.lastKnown.y);
+            e.investigateTimer=2;
+          }
+          if(!e.investigatePath.length||!enemyFollowPath(e,e.investigatePath,dt,19)){
+            enemyMove(e,e.lastKnown.x,e.lastKnown.y,dt,12);
+          }
+        }
+      }else{
+        e.tactic='patrol';
+        if(e.wander<=0){e.patrolX=e.homeX+rand(-34,34);e.patrolY=e.homeY+rand(-27,27);e.wander=rand(1.8,4.3);}
+        if(dist(e.x,e.y,e.patrolX,e.patrolY)>4){
+          if(!enemyMove(e,e.patrolX,e.patrolY,dt,17))e.wander=0;
+        }
+      }
+      if(target&&e.aimTime>.35&&e.suppressed<.1&&e.fire<=0&&
+        clearShot(e,target)){
+        e.dir=Math.atan2(target.y-e.y,target.x-e.x);
+        fireBullet({x:e.x+Math.cos(e.dir)*7,y:e.y+Math.sin(e.dir)*7},
+          {x:target.x+rand(-7,7),y:target.y+rand(-7,7)},'enemy');
+        e.fire=rand(DIFFICULTY.enemyFire,DIFFICULTY.enemyFire+.9);
+        sound('enemy');
+      }
+    }
+  }
   function update(dt){
     clock+=dt;if(messageTime>0)messageTime-=dt;if(panHint>0)panHint-=dt;
     advanceFormation(dt);
     const live=soldiers.filter(s=>s.alive);
-    for(const e of enemies){
-      if(!e.alive)continue;
-      e.wander-=dt;e.fire-=dt;
-      const nearest=live.reduce((v,s)=>{const d=pointDist(e,s);return d<v.d?{target:s,d}:v;},{target:null,d:99999});
-      if(nearest.target&&nearest.d<DIFFICULTY.enemySight){
-        const s=nearest.target;e.seen=true;e.dir=Math.atan2(s.y-e.y,s.x-e.x);
-        if(e.fire<=0){
-          fireBullet({x:e.x+Math.cos(e.dir)*6,y:e.y+Math.sin(e.dir)*6},
-            {x:s.x+rand(-9,9),y:s.y+rand(-9,9)},'enemy');
-          e.fire=rand(DIFFICULTY.enemyFire,DIFFICULTY.enemyFire+1.0);sound('enemy');
-        }
-      } else {
-        e.seen=false;
-        if(e.wander<=0){e.patrolX=e.homeX+rand(-34,34);e.patrolY=e.homeY+rand(-27,27);e.wander=rand(1.8,4.3);}
-        const dx=e.patrolX-e.x,dy=e.patrolY-e.y,d=Math.hypot(dx,dy);
-        if(d>4){
-          e.dir=Math.atan2(dy,dx);const nx=e.x+dx/d*17*dt,ny=e.y+dy/d*17*dt;
-          if(!blocked(nx,ny,4)){e.x=nx;e.y=ny;}else e.wander=0;
-        }
-      }
-    }
+    updateEnemies(dt,live);
     if((gesture&&gesture.firing)||clock<fireUntil){
       for(const s of currentSoldiers()){
         s.fire-=dt;
@@ -639,13 +765,26 @@
         const x=x0+(b.x-x0)*j/steps,y=y0+(b.y-y0)*j/steps;
         if(x<4||y<4||x>MW-4||y>MH-4){impact=true;break;}
         if(b.owner==='player'){
-          for(const e of enemies){if(e.alive&&dist(x,y,e.x,e.y)<7){killEnemy(e);impact=true;break;}}
+          for(const e of enemies){
+            if(!e.alive)continue;
+            const near=dist(x,y,e.x,e.y);
+            if(near<7){killEnemy(e);impact=true;break;}
+            if(near<ENEMY_AI.suppressionRadius&&e.suppressed<.12){
+              e.suppressed=.85;e.alert=ENEMY_AI.alertDuration;
+              e.lastKnown={x:b.x-b.vx*.15,y:b.y-b.vy*.15};
+              addParticles(e.x,e.y,'#e6c778',2,15,'spark');
+            }
+          }
           if(!impact&&!bunker.dead&&x>=bunker.x&&x<=bunker.x+bunker.w&&y>=bunker.y&&y<=bunker.y+bunker.h){
             bunker.hp=Math.max(0,bunker.hp-.13);impact=true;
-            addParticles(x,y,'#e6ca73',4,22,'spark');checkBunker();
+            effect(x,y,'impact');addParticles(x,y,'#e6ca73',4,22,'spark');checkBunker();
           }
         }else{
           for(const s of soldiers){if(s.alive&&dist(x,y,s.x,s.y)<5.3){killSoldier(s);impact=true;break;}}
+        }
+        if(!impact&&shotBlocked(x,y)){
+          impact=true;effect(x,y,'impact');
+          if(Math.random()<.65)addParticles(x,y,'#b8a579',3,19,'spark');
         }
         if(impact&&Math.random()<.18)decals.push({x,y,color:'#6a5938',life:7,r:2});
       }
@@ -664,6 +803,8 @@
       p.vx*=1-2*dt;p.vy*=1-2*dt;p.life-=dt;if(p.life<=0)particles.splice(i,1);
     }
     for(let i=decals.length-1;i>=0;i--){decals[i].life-=dt;if(decals[i].life<=0)decals.splice(i,1);}
+    for(let i=gunEffects.length-1;i>=0;i--){gunEffects[i].life-=dt;if(gunEffects[i].life<=0)gunEffects.splice(i,1);}
+    for(let i=fallenBodies.length-1;i>=0;i--){fallenBodies[i].life-=dt;if(fallenBodies[i].life<=0)fallenBodies.splice(i,1);}
     followCamera(dt);
   }
   function clampCamera(){cam.x=clamp(cam.x,0,Math.max(0,MW-VW));cam.y=clamp(cam.y,0,MH-VH);}
@@ -686,7 +827,7 @@
     ctx.textAlign=align;ctx.textBaseline='top';ctx.fillStyle='#102014';ctx.fillText(String(str),x+1,y+1);
     ctx.fillStyle=color;ctx.fillText(String(str),x,y);
   }
-  function iconSoldier(c,x,y,face,alive=true,enemy=false,chosen=false,t=clock){
+  function iconSoldier(c,x,y,face,alive=true,enemy=false,chosen=false,t=clock,crouched=false){
     c.save();c.translate(Math.round(x),Math.round(y));
     c.fillStyle='#1d2b1c';c.fillRect(-6,6,13,3);
     if(!alive){
@@ -694,6 +835,7 @@
       c.fillStyle='#af825a';c.fillRect(-2,-5,5,5);c.restore();return;
     }
     const move=t>0?Math.floor(t*8)%2:0;
+    if(crouched){c.translate(0,3);c.scale(1,.72);}
     c.rotate(face||0);
     // legs, body, face, helmet, rifle: individually shaped 16-bit pixels.
     c.fillStyle='#273322';c.fillRect(-4,-6,6,4);c.fillRect(-4,5,3,5+move);c.fillRect(2,5,3,5-move);
@@ -754,7 +896,16 @@
       const p=s.path[s.path.length-1];ctx.strokeStyle=s.id===0?'#d8c471':'#a6bc76';ctx.lineWidth=1;
       ctx.globalAlpha=.55;ctx.strokeRect((p.x|0)-5.5,(p.y|0)-5.5,11,11);ctx.globalAlpha=1;
     }
-    for(const e of enemies){if(!e.alive)continue;iconSoldier(ctx,e.x,e.y,e.dir,true,true,false,clock*e.seen);}
+    for(const body of fallenBodies){
+      ctx.globalAlpha=clamp(body.life/3,0,1)*.9;
+      iconSoldier(ctx,body.x,body.y,body.face,false,body.enemy,false,0);
+      ctx.globalAlpha=1;
+    }
+    for(const e of enemies){
+      if(!e.alive)continue;
+      iconSoldier(ctx,e.x,e.y,e.dir,true,true,false,clock*e.seen,e.suppressed>.1||e.tactic==='in cover');
+      if(e.alert>0&&e.tactic==='investigating')text('!',e.x,e.y-21,11,'#e9ca78','center');
+    }
     for(const s of soldiers){
       if(!s.alive)continue;
       const chosen=selected===s.id||(split&&selected===s.team);
@@ -764,9 +915,25 @@
         text(s.team,s.x,s.y-21,7,'#142219','center');
       }
     }
-    for(const b of bullets){ctx.fillStyle=b.owner==='player'?'#f9e58e':'#ff9471';
-      ctx.fillRect(Math.round(b.x),Math.round(b.y),3,2);
-      ctx.fillStyle=b.owner==='player'?'#fffcdb':'#e5583d';ctx.fillRect(Math.round(b.x-b.vx*.015),Math.round(b.y-b.vy*.015),2,2);
+    for(const b of bullets){
+      // A short two-colour tracer makes the firing direction readable on a phone.
+      ctx.strokeStyle=b.owner==='player'?'#f7d269':'#ed8456';ctx.lineWidth=2;
+      ctx.beginPath();ctx.moveTo(b.x-b.vx*.030,b.y-b.vy*.030);ctx.lineTo(b.x,b.y);ctx.stroke();
+      ctx.fillStyle=b.owner==='player'?'#fff2bc':'#ffc0a0';ctx.fillRect(b.x|0,b.y|0,3,2);
+    }
+    for(const fx of gunEffects){
+      const fade=clamp(fx.life/fx.max,0,1);
+      ctx.globalAlpha=fade;
+      if(fx.kind==='muzzle'){
+        ctx.save();ctx.translate(fx.x|0,fx.y|0);ctx.rotate(fx.angle);
+        ctx.fillStyle='#fff3a4';ctx.fillRect(-2,-2,11,4);
+        ctx.fillStyle='#e9a34e';ctx.fillRect(2,-5,5,10);
+        ctx.fillStyle='#fffde4';ctx.fillRect(0,-1,6,2);ctx.restore();
+      }else{
+        ctx.fillStyle='#efce85';ctx.fillRect((fx.x|0)-3,(fx.y|0)-1,7,2);
+        ctx.fillRect((fx.x|0)-1,(fx.y|0)-3,2,7);
+      }
+      ctx.globalAlpha=1;
     }
     for(const b of bombs){
       const rise=Math.sin(b.t/b.total*Math.PI)*25;
@@ -1112,6 +1279,9 @@
     get controls(){return {pending:!!(gesture&&!gesture.firing),firing:!!(gesture&&gesture.firing),shotsFired:playerShots,aim:{...aim},holdMs:HOLD_TO_FIRE_MS};},
     get roster(){return soldiers.map(s=>({name:s.name,x:s.x,y:s.y,alive:s.alive,team:s.team,followId:s.followId??null,followGap:s.followGap||0,trailPoints:s.trail?.length||0,followGoal:s.followGoal||null,pathLength:s.path.length,destination:s.path.at(-1)||null}));},
     get squads(){return {split,selected,alpha:soldiers.filter(s=>s.alive&&s.team==='A').map(s=>s.name),bravo:soldiers.filter(s=>s.alive&&s.team==='B').map(s=>s.name)};},
+    get enemyAI(){return enemies.map(e=>({id:e.id,alive:e.alive,x:e.x,y:e.y,tactic:e.tactic,
+      alert:e.alert,suppressed:e.suppressed,coverTime:e.coverTime,coverPath:e.coverPath.length}));},
+    get combatEffects(){return {gunEffects:gunEffects.length,fallenBodies:fallenBodies.length};},
     toggleSplit:()=>toggleSplit(),
     selectTeam:(team)=>chooseTeam(team),
     transfer:(id)=>transferSoldier(id),
