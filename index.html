@@ -72,6 +72,12 @@
   let career={nextMission:1,nextId:0,active:[],fallen:[],victories:[],bestScore:0};
   let afterAction={mission:1,fallen:[],promotions:[],newRecruits:[],score:0};
   let missionLossStart=0,archiveScroll=0,archiveFinger=null;
+  // An automatic, full-screen remembrance roll is shown after EVERY mission.
+  // The roll also remains accessible from the camp, with each fallen hero's
+  // final rank preserved at the time of death.
+  let memorialOffset=-48,memorialFinger=null,memorialHoldUntil=0;
+  let memorialReturn='title',memorialOperation=1,memorialRecent=[],memorialAutomatic=false;
+  let memorialButton={x:0,y:0,w:0,h:0},memorialWindow={x:0,y:0,w:0,h:0};
   const operationName=n=>n===1?'JUNGLE ASSAULT':n===2?'DEPOT RAID':'AWAITING ORDERS';
   // A small settings key that survives a native WebView restart.
   try {audioOn=localStorage.getItem('green-dawn-audio-v2')!=='off';}catch(_){}
@@ -123,6 +129,32 @@
       addRecruits(3);writeCareer();
     }
     return deployment();
+  }
+  function enterMemorial(auto=false,returnTo='title'){
+    cancelGesture();archiveFinger=null;memorialFinger=null;
+    memorialOffset=-48;memorialHoldUntil=0;
+    memorialAutomatic=auto;
+    memorialReturn=returnTo;
+    memorialOperation=auto?missionIndex:Math.max(1,Math.min(2,career.nextMission-1));
+    memorialRecent=auto?afterAction.fallen.map(s=>s.id):[];
+    state=auto?'honours':'memorial';
+  }
+  function startAfterAction(result){
+    afterAction.score=score;
+    career.pendingHonours={operation:missionIndex,result,
+      fallen:afterAction.fallen.map(f=>f.id),score};
+    writeCareer();
+    enterMemorial(true,result);
+  }
+  function leaveMemorial(){
+    memorialFinger=null;memorialHoldUntil=0;
+    const from=state;
+    if(from==='honours'){
+      // Dismiss the once-per-mission ceremony. Historical names stay forever.
+      career.pendingHonours=null;writeCareer();
+    }
+    state=memorialReturn||'title';
+    memorialAutomatic=false;
   }
   function recordCasualty(s){
     if(!s.careerId || career.fallen.some(f=>f.id===s.careerId))return;
@@ -710,7 +742,9 @@
     if(selected===s.id)selected=split?s.team:-1;
     if(split&&teamCount('A')===0&&teamCount('B')>0)selected='B';
     else if(split&&teamCount('B')===0&&teamCount('A')>0)selected='A';
-    if(!soldiers.some(k=>k.alive)){state='lost';afterAction.score=score;sound('fail');cancelGesture();}
+    if(!soldiers.some(k=>k.alive)){
+      sound('fail');startAfterAction('lost');
+    }
   }
   function killEnemy(e){
     if(!e.alive)return;e.alive=false;kills++;score+=100;
@@ -736,8 +770,7 @@
     if(state!=='playing')return;
     const survivors=soldiers.filter(s=>s.alive).length;
     score+=survivors*250+grenades*30;
-    completeCareerMission();state='won';sound('victory');
-    cancelGesture();
+    completeCareerMission();sound('victory');startAfterAction('won');
   }
   function checkBunker(){
     if(bunker.dead||bunker.hp>0)return;
@@ -1216,9 +1249,92 @@
   let titleStart={x:0,y:0,w:0,h:0},rosterStart={x:0,y:0,w:0,h:0};
   let memorialStart={x:0,y:0,w:0,h:0},archiveBack={x:0,y:0,w:0,h:0};
   let resultStart={x:0,y:0,w:0,h:0},resultAlt={x:0,y:0,w:0,h:0};
-  function archiveLength(){return state==='memorial'?career.fallen.length:sortedPersonnel().length;}
+  function archiveLength(){return sortedPersonnel().length;}
   function maxArchiveScroll(){return Math.max(0,archiveLength()*24-142);}
-  function showArchive(next){state=next;cancelGesture();archiveScroll=0;archiveFinger=null;}
+  function showArchive(next){
+    if(next==='memorial'){enterMemorial(false,state);return;}
+    state=next;cancelGesture();archiveScroll=0;archiveFinger=null;
+  }
+  function memorialMaximum(){return career.fallen.length*42+75;}
+  function memorialScrollArea(){
+    const width=Math.min(W-34,530);
+    return {x:(W-width)/2+20,y:99,w:width-40,h:112};
+  }
+  function drawMemorialScroll(){
+    // The remembrance ceremony covers the whole battlefield and the HUD.
+    // It is an original pixel-art parchment with rolled wood finials.
+    rect(0,0,W,WH,'#101a16');
+    for(let i=0;i<18;i++){
+      const x=(i*127+11)%W,y=(i*43+8)%WH;
+      rect(x,y,2,3,i%3===0?'#344536':'#273a30');
+    }
+    const w=Math.min(W-34,530),left=(W-w)/2,right=left+w,center=W/2;
+    // The heavy shadow and patterned paper are drawn without external images.
+    rect(left+5,22,w,245,'#080e0a');
+    rect(left,21,w,240,'#86633c');
+    const parchment=ctx.createLinearGradient(left,0,right,0);
+    parchment.addColorStop(0,'#ad8552');parchment.addColorStop(.04,'#d3b77e');
+    parchment.addColorStop(.21,'#efdfb0');parchment.addColorStop(.5,'#f6e9bf');
+    parchment.addColorStop(.79,'#efdfb0');parchment.addColorStop(.96,'#d3b77e');
+    parchment.addColorStop(1,'#aa8250');
+    ctx.fillStyle=parchment;ctx.fillRect(left+6,25,w-12,233);
+    for(let i=0;i<17;i++){
+      const y=31+i*13;
+      rect(left+11+(i%3),y,5,2,'#a98959');
+      rect(right-18-(i%4),y+4,4,2,'#b29263');
+    }
+    stroke(left+14,32,w-28,218,'#aa8858');
+    // Wooden scroll rollers and curled parchment ends.
+    for(const y of [12,256]){
+      rect(left-7,y,w+14,11,'#4d3824');
+      rect(left-7,y+2,w+14,3,'#9a7044');
+      rect(left-10,y+1,12,10,'#b18b58');
+      rect(right-2,y+1,12,10,'#b18b58');
+      rect(left-13,y+3,5,6,'#e2c58d');
+      rect(right+8,y+3,5,6,'#e2c58d');
+    }
+    text('✦',center-164,37,16,'#755438','center');
+    text('HEROES LOST IN ACTION',center,36,19,'#4e3925','center');
+    text('✦',center+164,37,16,'#755438','center');
+    const op=String(memorialOperation).padStart(2,'0');
+    text(memorialAutomatic?'AFTER OPERATION '+op+'  ·  '+memorialRecent.length+' FALLEN THIS MISSION':
+      'THE PERMANENT ROLL OF HONOUR',center,61,10,'#73543b','center');
+    rect(left+33,83,w-66,1,'#9d7a54');
+    text('FINAL RANK',left+56,87,8,'#77583d');
+    text('NAME',left+185,87,8,'#77583d');
+    text('MISSION',right-33,87,8,'#77583d','right');
+    const area=memorialScrollArea();memorialWindow=area;
+    ctx.save();ctx.beginPath();ctx.rect(area.x,area.y,area.w,area.h);ctx.clip();
+    if(!career.fallen.length){
+      text('NO HEROES LOST',center,119,17,'#5a4932','center');
+      text('MAY THEY ALL RETURN SAFELY',center,144,10,'#876849','center');
+    }else{
+      for(let i=0;i<career.fallen.length;i++){
+        const fallen=career.fallen[i],y=area.y+38+i*42-memorialOffset;
+        if(y<area.y-42||y>area.y+area.h+10)continue;
+        const newLoss=memorialAutomatic&&memorialRecent.includes(fallen.id);
+        if(newLoss){rect(area.x+7,y-5,area.w-14,35,'#ddbb8199');}
+        text('†',area.x+8,y,15,newLoss?'#873d2d':'#9e7851');
+        text(rankName(fallen.rank),area.x+33,y,10,'#69452e');
+        text(fallen.name,area.x+160,y-2,13,newLoss?'#873d2d':'#433222');
+        text(String(fallen.mission).padStart(2,'0'),area.x+area.w-17,y+1,10,'#72533a','right');
+        text('IN SERVICE  ·  '+(fallen.missions||0)+' OPERATIONS COMPLETED',
+          area.x+34,y+16,8,'#91704e');
+      }
+    }
+    ctx.restore();
+    // Subtle top and bottom masks keep the scrolling text within the parchment.
+    rect(left+24,211,w-48,1,'#a58456');
+    text(career.fallen.length+' '+(career.fallen.length===1?'HERO':'HEROES')+' REMEMBERED   ·   SWIPE TO SCROLL',
+      center,216,9,'#76573a','center');
+    memorialButton={x:center-116,y:234,w:232,h:25};
+    rect(memorialButton.x,memorialButton.y,memorialButton.w,memorialButton.h,'#34452c');
+    rect(memorialButton.x+2,memorialButton.y+2,memorialButton.w-4,memorialButton.h-4,'#4a6038');
+    stroke(memorialButton.x,memorialButton.y,memorialButton.w,memorialButton.h,'#806541');
+    text(memorialAutomatic?'HONOUR THE FALLEN  /  CONTINUE':
+      memorialReturn==='title'?'RETURN TO CAMP':'RETURN TO REPORT',
+      center,memorialButton.y+7,10,'#f1e7bf','center');
+  }
   function drawTitle(){
     shade(.84);
     const x=HUD+VW/2,bw=Math.min(252,VW-36);
@@ -1251,10 +1367,9 @@
     shade(.91);
     const x=HUD+VW/2,w=Math.min(VW-34,370),left=x-w/2;
     panel(left,12,w,264);
-    const lost=state==='memorial';
-    text(lost?'LOST IN BATTLE':'THE BARRACKS',x,22,19,lost?'#dfb875':C.gold,'center');
-    text(lost?career.fallen.length+' SOLDIERS NEVER RETURNED':career.active.length+' SERVING SOLDIERS',
-      x,48,9,C.mint,'center');
+    const lost=false;
+    text('THE BARRACKS',x,22,19,C.gold,'center');
+    text(career.active.length+' SERVING SOLDIERS',x,48,9,C.mint,'center');
     rect(left+12,65,w-24,1,'#647451');
     ctx.save();ctx.beginPath();ctx.rect(left+12,71,w-24,143);ctx.clip();
     const entries=lost?career.fallen:sortedPersonnel();
@@ -1327,9 +1442,10 @@
     else if(state==='paused')drawPause();
     else if(state==='won')drawEnd(true);
     else if(state==='lost')drawEnd(false);
-    else if(state==='roster'||state==='memorial')drawArchive();
+    else if(state==='roster')drawArchive();
+    else if(state==='honours'||state==='memorial')drawMemorialScroll();
     // Border and small top HUD separators.
-    rect(HUD-3,0,3,WH,'#101711');
+    if(state!=='honours'&&state!=='memorial')rect(HUD-3,0,3,WH,'#101711');
     if(state==='playing'&&panHint>0){
       const right=HUD+VW-9;
       text('MOVE / FIRE / GRENADE',right,5,8,'#d6e4b2','right');
@@ -1391,7 +1507,14 @@
       else if(inside(p,memorialStart))showArchive('memorial');
       return;
     }
-    if(state==='roster'||state==='memorial'){
+    if(state==='honours'||state==='memorial'){
+      if(inside(p,memorialButton)){leaveMemorial();return;}
+      if(inside(p,memorialWindow)){
+        memorialFinger={id:e.pointerId,lastY:p.y};memorialHoldUntil=performance.now()+4000;
+      }
+      return;
+    }
+    if(state==='roster'){
       if(inside(p,archiveBack)){archiveFinger=null;state='title';}
       else if(p.y>=70&&p.y<=224)archiveFinger={id:e.pointerId,lastY:p.y};
       return;
@@ -1427,6 +1550,13 @@
     if(gesture.firing){pointer.firePointer=e.pointerId;beginFire(p.wx,p.wy);}
   }
   function onPointerMove(e){
+    if(memorialFinger){
+      if(memorialFinger.id!==e.pointerId)return;
+      const p=where(e);
+      memorialOffset=clamp(memorialOffset+memorialFinger.lastY-p.y,-60,memorialMaximum());
+      memorialFinger.lastY=p.y;memorialHoldUntil=performance.now()+4000;
+      return;
+    }
     if(archiveFinger){
       if(archiveFinger.id!==e.pointerId)return;
       const p=where(e);archiveScroll=clamp(archiveScroll+archiveFinger.lastY-p.y,0,maxArchiveScroll());
@@ -1442,6 +1572,10 @@
     }
   }
   function onPointerUp(e){
+    if(memorialFinger){
+      if(e.pointerId===memorialFinger.id)memorialFinger=null;
+      return;
+    }
     if(archiveFinger){if(e.pointerId===archiveFinger.id)archiveFinger=null;return;}
     if((gesture&&e.pointerId!==gesture.id)||(hudPress&&e.pointerId!==hudPress.id))return;
     if(hudPress){
@@ -1465,13 +1599,24 @@
   }
   function onKey(e){
     if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
+    if((state==='honours'||state==='memorial')&&(e.code==='Enter'||e.code==='Space'||e.code==='Escape')){
+      leaveMemorial();return;
+    }
+    if(state==='roster'&&e.code==='Escape'){state='title';return;}
     if(e.code==='KeyR'){if(state==='playing'||state==='paused')resetMission();return;}
     if(e.code==='KeyP'||e.code==='Escape'){
       if(state==='playing'){state='paused';cancelGesture();}
       else if(state==='paused')state='playing';return;
     }
     if(state==='title'&&(e.code==='Enter'||e.code==='Space')){if(career.nextMission<=2){audioInit();resetMission();}return;}
-    if((state==='roster'||state==='memorial')&&e.code==='Escape'){state='title';return;}
+    if((state==='honours'||state==='memorial')&&(e.code==='Enter'||e.code==='Space'||e.code==='Escape')){
+      leaveMemorial();return;
+    }
+    if((state==='honours'||state==='memorial')&&(e.code==='ArrowDown'||e.code==='ArrowUp')){
+      memorialOffset=clamp(memorialOffset+(e.code==='ArrowDown'?42:-42),-60,memorialMaximum());
+      memorialHoldUntil=performance.now()+4000;return;
+    }
+    if(state==='roster'&&e.code==='Escape'){state='title';return;}
     if(state==='won'||state==='lost'){if(e.code==='Enter'||e.code==='Space'){audioInit();if(state==='won'&&career.nextMission>2)state='title';else resetMission();}return;}
     if(state!=='playing')return;
     if(e.code==='Digit0')chooseSquad(-1);
@@ -1486,9 +1631,10 @@
   }
   let last=performance.now();
   function tick(t){const dt=clamp((t-last)/1000,0,.04);last=t;timeNow=t;
-    if(state==='memorial'&&!archiveFinger&&maxArchiveScroll()>0){
-      archiveScroll+=dt*9;
-      if(archiveScroll>maxArchiveScroll()+16)archiveScroll=0;
+    if((state==='honours'||state==='memorial')&&!memorialFinger&&
+       t>memorialHoldUntil&&career.fallen.length){
+      memorialOffset+=dt*14;
+      if(memorialOffset>memorialMaximum())memorialOffset=-48;
     }
     if(state==='playing'&&hudPress&&!hudPress.done&&split&&t-hudPress.started>=520){
       hudPress.done=true;transferSoldier(hudPress.soldier);
@@ -1517,6 +1663,14 @@
   window.addEventListener('pagehide',pauseForBackground);
   window.addEventListener('green-dawn-pause',pauseForBackground);
   loadSave();missionIndex=Math.min(2,career.nextMission);resize();generateTerrain();
+  if(career.pendingHonours){
+    // If the app was closed at the ceremony, show it again on return rather
+    // than silently skipping the fallen heroes' names.
+    const pending=career.pendingHonours;
+    afterAction.fallen=career.fallen.filter(f=>pending.fallen?.includes(f.id));
+    missionIndex=pending.operation;
+    enterMemorial(true,'title');
+  }
   soldiers=deployment().map((m,i)=>({name:m.name,rank:m.rank,careerId:m.id,x:111+i*9,y:573+i*11,
     alive:true,team:'A',path:[],face:-.6,id:i}));
   enemies=[];bunker={x:871,y:119,w:67,h:53,hp:8,maxHp:8,dead:false};ammo={x:461,y:371,taken:false};
@@ -1528,6 +1682,9 @@
     get roster(){return soldiers.map(s=>({name:s.name,careerId:s.careerId,rank:s.rank,x:s.x,y:s.y,alive:s.alive,team:s.team,followId:s.followId??null,followGap:s.followGap||0,trailPoints:s.trail?.length||0,followGoal:s.followGoal||null,pathLength:s.path.length,destination:s.path.at(-1)||null}));},
     get career(){return JSON.parse(JSON.stringify(career));},
     get afterAction(){return JSON.parse(JSON.stringify(afterAction));},
+    get ceremony(){return {state,automatic:memorialAutomatic,returnTo:memorialReturn,
+      offset:memorialOffset,operation:memorialOperation,recent:[...memorialRecent],
+      pending:career.pendingHonours||null};},
     get squads(){return {split,selected,alpha:soldiers.filter(s=>s.alive&&s.team==='A').map(s=>s.name),bravo:soldiers.filter(s=>s.alive&&s.team==='B').map(s=>s.name)};},
     get enemyAI(){return enemies.map(e=>({id:e.id,alive:e.alive,x:e.x,y:e.y,tactic:e.tactic,
       alert:e.alert,suppressed:e.suppressed,coverTime:e.coverTime,coverPath:e.coverPath.length}));},

@@ -69,13 +69,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Campaign-v0.8-debug.apk
-          if gh release view v0.8.0 >/dev/null 2>&1; then
-            gh release upload v0.8.0 GreenDawn-Campaign-v0.8-debug.apk --clobber
+          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Campaign-v0.9-debug.apk
+          if gh release view v0.9.0 >/dev/null 2>&1; then
+            gh release upload v0.9.0 GreenDawn-Campaign-v0.9-debug.apk --clobber
           else
-            gh release create v0.8.0 GreenDawn-Campaign-v0.8-debug.apk \
+            gh release create v0.9.0 GreenDawn-Campaign-v0.9-debug.apk \
               --target "$GITHUB_SHA" \
-              --title "Green Dawn v0.8.0 — Android test build" \
-              --notes "Green Dawn v0.8 adds the one-way soldier career campaign: start with three recruits, surviving soldiers earn a new rank at the end of each completed mission, two fresh recruits join reserves after every victory, fallen soldiers are permanently recorded in a scrolling Lost in Battle memorial, and the barracks shows ranks and missions survived. No replay or level selection: advance from Mission 01 to Mission 02. Mission 03 is not built yet. This is a debug test APK; reinstalling after uninstall clears local save data." \
+              --title "Green Dawn v0.9.0 — Android test build" \
+              --notes "Green Dawn v0.9 adds a full-screen ceremonial parchment scroll: HEROES LOST IN ACTION appears automatically after every mission, whether won or lost. Each fallen soldier is listed by name, final rank, and operation number; casualties from the latest operation are highlighted. All fallen remain in the scrollable roll of honour, accessible from Camp. Manual swiping, automated scrolling, Android Back, and resume-after-restart are supported. Includes existing promotions, fresh recruits, forward-only campaign, Alpha/Bravo squads, tap-to-move and hold-to-fire. Debug APK: upgrading from earlier builds might require uninstalling and will delete old saved progress." \
               --prerelease
           fi
