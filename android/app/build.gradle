@@ -1,5 +1,12 @@
 plugins { id 'com.android.application' }
 
+// Persistent certificate ONLY via GitHub Actions secrets. Never commit a key.
+def stableStore=System.getenv('GREEN_DAWN_KEYSTORE_PATH')
+def stableStorePassword=System.getenv('GREEN_DAWN_KEYSTORE_PASSWORD')
+def stableAlias=System.getenv('GREEN_DAWN_KEY_ALIAS')
+def stableKeyPassword=System.getenv('GREEN_DAWN_KEY_PASSWORD')
+def stableSigning=stableStore && stableStorePassword && stableAlias && stableKeyPassword
+
 android {
     namespace 'uk.co.greendawn.jungle'
     compileSdk 35
@@ -8,11 +15,24 @@ android {
         applicationId 'uk.co.greendawn.jungle'
         minSdk 26
         targetSdk 35
-        versionCode 11
-        versionName '0.11.0'
+        versionCode 12
+        versionName '0.12.0'
+    }
+    signingConfigs {
+        if (stableSigning) {
+            greenDawnPersistent {
+                storeFile file(stableStore)
+                storePassword stableStorePassword
+                keyAlias stableAlias
+                keyPassword stableKeyPassword
+            }
+        }
     }
     buildTypes {
-        debug { debuggable true }
+        debug {
+            debuggable true
+            if (stableSigning) signingConfig signingConfigs.greenDawnPersistent
+        }
         release { minifyEnabled false }
     }
     compileOptions {

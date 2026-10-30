@@ -1,8 +1,17 @@
 package uk.co.greendawn.jungle;
 
-import android.app.Activity;
 import android.os.Build;
 import android.os.Bundle;
+import android.content.Intent;
+import android.app.Activity;
+import android.webkit.JavascriptInterface;
+import org.json.JSONObject;
+import java.io.ByteArrayOutputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.net.Uri;
@@ -27,7 +36,11 @@ import java.util.Collections;
 public final class MainActivity extends Activity {
     private static final String HOST = "appassets.androidplatform.net";
     private static final String PREFIX = "/game/";
+    private static final int PICK_EXPORT = 412, PICK_IMPORT = 413;
+    private static final int MAX_BACKUP_BYTES = 240000;
     private WebView gameView;
+    private String pendingExport;
+    private boolean pickerOpen = false;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -48,6 +61,9 @@ public final class MainActivity extends Activity {
         s.setUseWideViewPort(true);
         s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);
+        // JS bridge is only exposed to the offline, locally intercepted game.
+        // The Android document picker needs no file/storage permissions.
+        gameView.addJavascriptInterface(new SaveBridge(), "GreenDawnAndroid");
         gameView.setWebViewClient(new WebViewClient() {
             private WebResourceResponse block() {
                 return new WebResourceResponse("text/plain", "UTF-8", 403,
@@ -87,6 +103,101 @@ public final class MainActivity extends Activity {
                 new OnBackInvokedCallback() {
                     @Override public void onBackInvoked() { togglePause(); }
                 });
+        }
+    }
+
+    /** Scoped Storage picker; backups never require INTERNET or storage permissions. */
+    private final class SaveBridge {
+        @JavascriptInterface public void exportSave(String content) {
+            if (content == null || content.getBytes(StandardCharsets.UTF_8).length > MAX_BACKUP_BYTES) {
+                runOnUiThread(() -> reportBackup("SAVE TOO LARGE - EXPORT FAILED"));
+                return;
+            }
+            runOnUiThread(() -> {
+                if (pickerOpen) { reportBackup("FINISH THE CURRENT FILE PICKER"); return; }
+                pendingExport = content;
+                pickerOpen = true;
+                try {
+                    Intent picker = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                    picker.addCategory(Intent.CATEGORY_OPENABLE);
+                    picker.setType("application/json");
+                    String date = new SimpleDateFormat("yyyyMMdd-HHmm",Locale.UK).format(new Date());
+                    picker.putExtra(Intent.EXTRA_TITLE,"GreenDawn-" + date + ".json");
+                    startActivityForResult(picker,PICK_EXPORT);
+                } catch (Exception e) {
+                    pendingExport = null;
+                    pickerOpen = false;
+                    reportBackup("COULD NOT OPEN FILE PICKER");
+                }
+            });
+        }
+
+        @JavascriptInterface public void importSave() {
+            runOnUiThread(() -> {
+                if (pickerOpen) { reportBackup("FINISH THE CURRENT FILE PICKER"); return; }
+                pickerOpen = true;
+                try {
+                    Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    picker.addCategory(Intent.CATEGORY_OPENABLE);
+                    picker.setType("*/*"); // Some Android file managers label JSON as text/plain.
+                    picker.putExtra(Intent.EXTRA_MIME_TYPES,
+                        new String[]{"application/json","text/plain","application/octet-stream"});
+                    startActivityForResult(picker,PICK_IMPORT);
+                } catch (Exception e) {
+                    pickerOpen = false;
+                    reportBackup("COULD NOT OPEN FILE PICKER");
+                }
+            });
+        }
+    }
+
+    private void callGame(String script) {
+        if (gameView != null) gameView.evaluateJavascript(script,null);
+    }
+
+    private void reportBackup(String status) {
+        callGame("window.greenDawnOnNativeStatus(" + JSONObject.quote(status) + ")");
+    }
+
+    @Override @SuppressWarnings("deprecation")
+    protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request,result,data);
+        if (request != PICK_EXPORT && request != PICK_IMPORT) return;
+        pickerOpen = false;
+        String export = pendingExport;
+        pendingExport = null; // Avoid keeping copies of campaign saves in Activity state.
+        if (result != RESULT_OK || data == null || data.getData() == null) {
+            reportBackup("CANCELLED - NO SAVE CHANGED");
+            return;
+        }
+        Uri file = data.getData();
+        if (request == PICK_EXPORT) {
+            if (export == null) { reportBackup("SAVE NO LONGER AVAILABLE"); return; }
+            try (OutputStream stream = getContentResolver().openOutputStream(file,"w")) {
+                if (stream == null) throw new IllegalStateException("No output stream");
+                byte[] bytes = export.getBytes(StandardCharsets.UTF_8);
+                if (bytes.length > MAX_BACKUP_BYTES) throw new IllegalStateException("File too large");
+                stream.write(bytes);
+                stream.flush();
+                reportBackup("BACKUP SAVED - KEEP THE JSON FILE");
+            } catch (Exception e) {
+                reportBackup("EXPORT FAILED - TRY AGAIN");
+            }
+        } else {
+            try (InputStream stream = getContentResolver().openInputStream(file)) {
+                if (stream == null) throw new IllegalStateException("No input stream");
+                ByteArrayOutputStream content = new ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = stream.read(buf)) != -1) {
+                    if (content.size() + n > MAX_BACKUP_BYTES) throw new IllegalStateException("File too large");
+                    content.write(buf,0,n);
+                }
+                String json = new String(content.toByteArray(),StandardCharsets.UTF_8);
+                callGame("window.greenDawnOnNativeBackup(" + JSONObject.quote(json) + ")");
+            } catch (Exception e) {
+                reportBackup("IMPORT FAILED - CHECK JSON FILE");
+            }
         }
     }
 

@@ -47,7 +47,15 @@ function fakeCanvas(){
 function boot(save){
   const gameCanvas=fakeCanvas();
   const storage=new Map([['green-dawn-campaign-v1',JSON.stringify(save)]]);
-  const window={innerWidth:1024,innerHeight:576,addEventListener(){}};
+  const native={exports:[],importCalls:0};
+  const window={
+    innerWidth:1024,innerHeight:576,addEventListener(){},
+    reloadCount:0,location:{reload(){window.reloadCount++;}},
+    GreenDawnAndroid:{
+      exportSave(content){native.exports.push(content);},
+      importSave(){native.importCalls++;}
+    }
+  };
   const document={getElementById:()=>gameCanvas,createElement:()=>fakeCanvas(),
     addEventListener(){},hidden:false};
   // These hooks are injected into the *test copy in memory*; no cheat controls
@@ -59,7 +67,15 @@ function boot(save){
     '    evacOne(){const first=soldiers.find(s=>s.alive);if(first){first.x=extraction.x;first.y=extraction.y;}},',
     '    step(){update(.016);},',
     '    leave(){leaveMemorial();},',
-    "    camp(){state='title';}",
+    "    camp(){state='title';},",
+    '    openBackup(){openBackup();},',
+    '    exportBackup(){exportBackup();},',
+    '    importBackup(){importBackup();},',
+    '    receiveBackup(raw){receiveBackup(raw);},',
+    '    confirmBackup(){confirmBackupRestore();},',
+    '    cancelBackup(){pendingBackup=null;openBackup();},',
+    '    get backupStatus(){return backupStatus;},',
+    '    get backupReady(){return !!pendingBackup;}',
     '  };'
   ].join('\n');
   const marker='  // Expose a tiny read-only test surface to catch playability regressions.';
@@ -71,7 +87,7 @@ function boot(save){
     performance:{now:()=>0},requestAnimationFrame(){},console
   };
   vm.runInNewContext(script,sandbox,{timeout:20000,filename:'green-dawn-game.js'});
-  return {api:window.GREEN_DAWN_TEST,qa:window.__GD_QA,storage};
+  return {api:window.GREEN_DAWN_TEST,qa:window.__GD_QA,storage,native,window};
 }
 
 test('An existing v0.10 save unlocks Mission 03 and its route is navigable',()=>{
@@ -156,4 +172,99 @@ test('A restarted post-mission ceremony remembers only the latest operation',()=
   assert.equal(api.ceremony.missionOnly,true);
   assert.equal(api.ceremony.displayed.length,0);
   assert.equal(api.career.fallen.length,1);
+});
+
+
+test('Samsung backup exports a complete versioned career and memorial file',()=>{
+  const {qa,api,native,storage}=boot(saveAfter(2));
+  qa.openBackup();
+  assert.equal(api.status.state,'backup');
+  qa.exportBackup();
+  assert.equal(native.exports.length,1);
+  const file=JSON.parse(native.exports[0]);
+  assert.equal(file.format,'GREEN_DAWN_SAVE');
+  assert.equal(file.version,1);
+  assert.equal(file.gameVersion,'0.12.0');
+  assert.equal(file.career.active.length,3);
+  assert.equal(file.career.fallen.length,1);
+  assert.equal(file.career.victories.length,2);
+  assert.equal(file.career.active[0].rank,2);
+  assert.equal(JSON.parse(storage.get('green-dawn-campaign-v1')).nextMission,3,
+    'export must never alter the current game');
+});
+
+test('Restore previews a valid save but does not overwrite until confirmed',()=>{
+  const current=saveAfter(1),incoming=saveAfter(2);
+  const {api,qa,storage,window}=boot(current);
+  qa.openBackup();
+  qa.importBackup();
+  // The Android bridge can request the Files picker without any permissions.
+  qa.receiveBackup(JSON.stringify({
+    format:'GREEN_DAWN_SAVE',version:1,gameVersion:'0.12.0',
+    career:incoming,settings:{audioOn:false}
+  }));
+  assert.equal(api.status.state,'backup-confirm');
+  assert.equal(qa.backupReady,true);
+  assert.equal(JSON.parse(storage.get('green-dawn-campaign-v1')).victories.length,1,
+    'preview must not change storage');
+  assert.equal(window.reloadCount,0);
+  qa.confirmBackup();
+  assert.equal(window.reloadCount,1);
+  const restored=JSON.parse(storage.get('green-dawn-campaign-v1'));
+  assert.equal(restored.victories.length,2);
+  assert.equal(restored.fallen.length,1);
+  assert.equal(restored.active[1].rank,2);
+  assert.equal(storage.get('green-dawn-audio-v2'),'off');
+  // A new app process must load the restored mission without level selection.
+  const next=boot(restored);
+  assert.equal(next.api.status.nextMission,3);
+  next.api.start();
+  assert.equal(next.api.status.objectiveKind,'radar');
+});
+
+test('Cancel restoration keeps the old soldiers, and invalid imports are rejected',()=>{
+  const original=saveAfter(2);
+  const {qa,api,native,storage,window}=boot(original);
+  qa.openBackup();
+  qa.importBackup();
+  assert.equal(native.importCalls,1);
+  const bad=[
+    'not json',
+    JSON.stringify({format:'NOT_GREEN_DAWN',version:1,career:original}),
+    JSON.stringify({format:'GREEN_DAWN_SAVE',version:8,career:original}),
+    JSON.stringify({format:'GREEN_DAWN_SAVE',version:1,
+      career:{...original,active:[original.active[0],original.active[0]]}})
+  ];
+  const before=storage.get('green-dawn-campaign-v1');
+  for(const input of bad){
+    qa.receiveBackup(input);
+    assert.equal(api.status.state,'backup');
+    assert.equal(qa.backupReady,false);
+    assert.equal(storage.get('green-dawn-campaign-v1'),before);
+  }
+  qa.receiveBackup(JSON.stringify({format:'GREEN_DAWN_SAVE',version:1,career:saveAfter(1)}));
+  assert.equal(api.status.state,'backup-confirm');
+  qa.cancelBackup();
+  assert.equal(api.status.state,'backup');
+  assert.equal(qa.backupReady,false);
+  qa.confirmBackup();
+  assert.equal(window.reloadCount,0);
+  assert.equal(storage.get('green-dawn-campaign-v1'),before);
+});
+
+test('Restoring an interrupted memorial preserves only the new mission casualties',()=>{
+  const pending=saveAfter(3);
+  pending.fallen.push({id:'r5',name:'HOLT',rank:1,missions:2,mission:3,cause:'KILLED IN ACTION'});
+  pending.pendingHonours={operation:3,result:'won',fallen:['r5'],score:1600};
+  const {qa,storage}=boot(saveAfter(1));
+  qa.openBackup();
+  qa.receiveBackup(JSON.stringify({format:'GREEN_DAWN_SAVE',version:1,career:pending}));
+  qa.confirmBackup();
+  const resumed=boot(JSON.parse(storage.get('green-dawn-campaign-v1')));
+  assert.equal(resumed.api.status.state,'honours');
+  assert.equal(resumed.api.ceremony.operation,3);
+  assert.equal(resumed.api.ceremony.missionOnly,true);
+  assert.equal(resumed.api.ceremony.displayed.length,1);
+  assert.equal(resumed.api.ceremony.displayed[0].id,'r5');
+  assert.equal(resumed.api.career.fallen.length,2,'historical casualties must persist');
 });

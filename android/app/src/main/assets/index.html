@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="theme-color" content="#151d13">
-  <meta name="description" content="Green Dawn — an original 16-bit inspired squad tactics game. Jungle Assault + Depot Raid. (2 playable missions)">
+  <meta name="description" content="Green Dawn — original offline 16-bit-inspired Android squad tactics. Three jungle missions, permanent careers and safe-save backup.">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   
   
-  <title>GREEN DAWN — Mission 01</title>
+  <title>GREEN DAWN — Campaign</title>
   <style>
     * { box-sizing:border-box; }
     :root{color-scheme:dark;--dark:#111812;--olive:#344a2e;--sand:#d7c58e;--mint:#c0dba4}
@@ -32,7 +32,7 @@
   </main>
   <script>
 /*
-  GREEN DAWN v0.7 — TWO-MISSION CAMPAIGN
+  GREEN DAWN v0.12 — THREE-MISSION CAMPAIGN
   Original game, procedural pixel art, original gameplay code and synthesized SFX.
   No art/music/code from Cannon Fodder or any other game is used.
 */
@@ -65,6 +65,8 @@
   // Permanent personnel records. A separate v0.8 save starts the new one-way
   // campaign with fresh recruits, since older test saves had no soldier identities.
   const CAREER_KEY='green-dawn-campaign-v1',MAX_DEPLOY=3,RECRUITS_PER_VICTORY=2;
+  const BACKUP_FORMAT='GREEN_DAWN_SAVE',BACKUP_VERSION=1,BACKUP_MAX_CHARS=240000;
+  let backupStatus='KEEP A COPY OF YOUR SOLDIERS',pendingBackup=null;
   const RANKS=['RECRUIT','PRIVATE','L/CPL','CORPORAL','SERGEANT','STAFF SGT','WARRANT','LIEUTENANT','CAPTAIN','MAJOR','COLONEL'];
   const SHORT_RANKS=['RCT','PVT','LCP','CPL','SGT','SSG','WO','LT','CPT','MAJ','COL'];
   const RECRUIT_NAMES=['JAX','ACE','PIP','ROOK','NASH','HOLT','DEX','BECK','MILO','TUCK',
@@ -1332,6 +1334,9 @@
   function panel(x,y,w,h){rect(x,y,w,h,'#18241de8');stroke(x,y,w,h,'#9b9f61',2);rect(x+3,y+3,w-6,3,'#536b3f');}
   let titleStart={x:0,y:0,w:0,h:0},rosterStart={x:0,y:0,w:0,h:0};
   let memorialStart={x:0,y:0,w:0,h:0},archiveBack={x:0,y:0,w:0,h:0};
+  let backupStart={x:0,y:0,w:0,h:0},backupExportButton={x:0,y:0,w:0,h:0};
+  let backupImportButton={x:0,y:0,w:0,h:0},backupConfirmButton={x:0,y:0,w:0,h:0};
+  let backupBackButton={x:0,y:0,w:0,h:0};
   let resultStart={x:0,y:0,w:0,h:0},resultAlt={x:0,y:0,w:0,h:0};
   function archiveLength(){return sortedPersonnel().length;}
   function maxArchiveScroll(){return Math.max(0,archiveLength()*24-142);}
@@ -1498,19 +1503,206 @@
       text(deploying+' DEPLOYING   '+Math.max(0,career.active.length-deploying)+' RESERVE',x,162,9,C.sand,'center');
       titleStart={x:x-bw/2,y:181,w:bw,h:33};
       button(titleStart.x,titleStart.y,bw,33,'DEPLOY NEXT OPERATION','start',true);
-      rosterStart={x:x-bw/2,y:223,w:(bw-8)/2,h:30};
-      memorialStart={x:x+4,y:223,w:(bw-8)/2,h:30};
+      const third=Math.floor((bw-8)/3);
+      rosterStart={x:x-bw/2,y:223,w:third,h:30};
+      memorialStart={x:rosterStart.x+third+4,y:223,w:third,h:30};
+      backupStart={x:memorialStart.x+third+4,y:223,w:bw-2*third-8,h:30};
     }else{
       text('THREE MISSIONS COMPLETE',x,146,12,C.gold,'center');
       text('MISSION 04  -  COMING SOON',x,166,10,C.mint,'center');
       titleStart={x:0,y:0,w:0,h:0};
-      rosterStart={x:x-bw/2,y:199,w:(bw-8)/2,h:34};
-      memorialStart={x:x+4,y:199,w:(bw-8)/2,h:34};
+      const third=Math.floor((bw-8)/3);
+      rosterStart={x:x-bw/2,y:199,w:third,h:34};
+      memorialStart={x:rosterStart.x+third+4,y:199,w:third,h:34};
+      backupStart={x:memorialStart.x+third+4,y:199,w:bw-2*third-8,h:34};
     }
     button(rosterStart.x,rosterStart.y,rosterStart.w,rosterStart.h,'BARRACKS','roster',false);
     button(memorialStart.x,memorialStart.y,memorialStart.w,memorialStart.h,'MEMORIAL','memorial',false);
+    button(backupStart.x,backupStart.y,backupStart.w,backupStart.h,'SAVE DATA','backup',false);
     text('KIA '+career.fallen.length+'   /   OPERATIONS CLEARED '+career.victories.length,
       x,264,8,'#b6c89f','center');
+  }
+  function openBackup(){
+    cancelGesture();pendingBackup=null;
+    backupStatus='KEEP A COPY BEFORE REINSTALLING';
+    state='backup';
+  }
+  function backupPayload(){
+    return JSON.stringify({
+      format:BACKUP_FORMAT,version:BACKUP_VERSION,createdAt:new Date().toISOString(),
+      gameVersion:'0.12.0',career:JSON.parse(JSON.stringify(career)),
+      settings:{audioOn}
+    },null,2);
+  }
+  function exportBackup(){
+    if(state!=='backup')return;
+    let payload;
+    try {
+      payload=backupPayload();
+      if(payload.length>BACKUP_MAX_CHARS)throw Error('SAVE TOO LARGE');
+    }catch(_){backupStatus='COULD NOT PREPARE BACKUP';return;}
+    if(window.GreenDawnAndroid&&typeof window.GreenDawnAndroid.exportSave==='function'){
+      try {
+        window.GreenDawnAndroid.exportSave(payload);
+        backupStatus='CHOOSE WHERE TO SAVE THE FILE';
+      }catch(_){backupStatus='COULD NOT OPEN ANDROID FILES';}
+      return;
+    }
+    // Non-Android browser fallback. The APK always uses Android's file picker.
+    try {
+      const blob=new Blob([payload],{type:'application/json'});
+      const url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download='GreenDawn-campaign-backup.json';
+      document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1200);
+      backupStatus='BACKUP DOWNLOAD REQUESTED';
+    }catch(_){backupStatus='EXPORT UNAVAILABLE IN THIS BROWSER';}
+  }
+  function importBackup(){
+    if(state!=='backup')return;
+    pendingBackup=null;
+    if(window.GreenDawnAndroid&&typeof window.GreenDawnAndroid.importSave==='function'){
+      try {
+        window.GreenDawnAndroid.importSave();
+        backupStatus='CHOOSE YOUR GREEN DAWN JSON FILE';
+      }catch(_){backupStatus='COULD NOT OPEN ANDROID FILES';}
+      return;
+    }
+    try {
+      const picker=document.createElement('input');
+      picker.type='file';picker.accept='.json,application/json';
+      picker.addEventListener('change',async()=>{
+        const file=picker.files&&picker.files[0];
+        if(!file)return;
+        if(file.size>BACKUP_MAX_CHARS*3){backupStatus='FILE IS TOO LARGE';return;}
+        try{receiveBackup(await file.text());}
+        catch(_){backupStatus='COULD NOT READ BACKUP FILE';}
+      },{once:true});
+      picker.click();
+      backupStatus='CHOOSE YOUR GREEN DAWN JSON FILE';
+    }catch(_){backupStatus='IMPORT UNAVAILABLE IN THIS BROWSER';}
+  }
+  function validateBackup(raw){
+    if(typeof raw!=='string'||raw.length<30||raw.length>BACKUP_MAX_CHARS)
+      throw Error('INVALID FILE SIZE');
+    const file=JSON.parse(raw);
+    if(!file||file.format!==BACKUP_FORMAT||file.version!==BACKUP_VERSION)
+      throw Error('NOT A GREEN DAWN BACKUP');
+    const data=file.career;
+    if(!data||!Number.isInteger(data.nextId)||data.nextId<3||data.nextId>1000000||
+       !Number.isInteger(data.nextMission)||data.nextMission<1||
+       data.nextMission>CAMPAIGN_MISSIONS+1)
+      throw Error('INVALID CAREER');
+    if(!Array.isArray(data.active)||!Array.isArray(data.fallen)||
+       !Array.isArray(data.victories)||data.active.length>2000||
+       data.fallen.length>2000||data.victories.length>CAMPAIGN_MISSIONS)
+      throw Error('INVALID ROSTER');
+    const seen=new Set();
+    for(const m of [...data.active,...data.fallen]){
+      if(!m||typeof m.name!=='string'||!/^[A-Z0-9 -]{1,28}$/.test(m.name)||
+         typeof m.id!=='string'||!/^r[0-9]+$/.test(m.id)||
+         Number(m.id.slice(1))>=data.nextId||seen.has(m.id)||
+         !Number.isInteger(m.rank)||m.rank<0||m.rank>=RANKS.length||
+         !Number.isInteger(m.missions)||m.missions<0||m.missions>10000)
+        throw Error('INVALID SOLDIER');
+      if(data.fallen.includes(m)&&(!Number.isInteger(m.mission)||m.mission<1||
+          m.mission>CAMPAIGN_MISSIONS))throw Error('INVALID CASUALTY');
+      seen.add(m.id);
+    }
+    for(let i=0;i<data.victories.length;i++){
+      const v=data.victories[i];
+      if(!v||!Number.isInteger(v.mission)||v.mission!==i+1||
+         !Number.isFinite(v.score)||v.score<0)
+        throw Error('INVALID OPERATIONS');
+    }
+    if(data.pendingHonours!=null){
+      const p=data.pendingHonours;
+      if(!Number.isInteger(p.operation)||p.operation<1||
+         p.operation>CAMPAIGN_MISSIONS||!Array.isArray(p.fallen)||
+         p.fallen.length>2000||!['won','lost'].includes(p.result)||
+         p.fallen.some(id=>!data.fallen.some(f=>f.id===id&&f.mission===p.operation)))
+        throw Error('INVALID CEREMONY');
+    }
+    // Copy only known save fields so imported JSON cannot inject other state.
+    return {
+      career:{
+        nextMission:data.nextMission,nextId:data.nextId,
+        active:data.active.map(m=>({...m})),
+        fallen:data.fallen.map(m=>({...m})),
+        victories:data.victories.map(v=>({...v})),
+        bestScore:Number.isFinite(data.bestScore)?Math.max(0,data.bestScore):0,
+        ...(data.pendingHonours?{pendingHonours:{...data.pendingHonours}}:{})
+      },
+      audioOn:typeof file.settings?.audioOn==='boolean'?file.settings.audioOn:null
+    };
+  }
+  function receiveBackup(raw){
+    if(state!=='backup')return;
+    try {
+      pendingBackup=validateBackup(raw);
+      backupStatus='VALID BACKUP - CONFIRM TO RESTORE';
+      state='backup-confirm';
+    }catch(_){
+      pendingBackup=null;
+      backupStatus='INVALID OR UNSUPPORTED SAVE FILE';
+    }
+  }
+  function confirmBackupRestore(){
+    if(state!=='backup-confirm'||!pendingBackup)return;
+    try {
+      // Commit only AFTER an explicit second tap. The app then reloads safely.
+      localStorage.setItem(CAREER_KEY,JSON.stringify(pendingBackup.career));
+      if(pendingBackup.audioOn!==null)
+        localStorage.setItem('green-dawn-audio-v2',pendingBackup.audioOn?'on':'off');
+      pendingBackup=null;
+      backupStatus='RESTORED. RELOADING CAMP...';
+      window.location.reload();
+    }catch(_){backupStatus='RESTORE FAILED - NO FILE CHANGED';}
+  }
+  window.greenDawnOnNativeBackup=raw=>receiveBackup(raw);
+  window.greenDawnOnNativeStatus=message=>{
+    if(state==='backup'&&typeof message==='string')
+      backupStatus=message.slice(0,48).toUpperCase();
+  };
+  function drawBackup(){
+    shade(.94);
+    const center=HUD+VW/2,w=Math.min(VW-36,332),left=center-w/2;
+    panel(left,10,w,264);
+    text(state==='backup-confirm'?'RESTORE CAMPAIGN?':'CAMPAIGN ARCHIVE',
+      center,25,19,C.gold,'center');
+    rect(left+19,56,w-38,2,'#7a8e5c');
+    if(state==='backup-confirm'&&pendingBackup){
+      const incoming=pendingBackup.career;
+      const next=Math.min(CAMPAIGN_MISSIONS+1,incoming.victories.length+1);
+      text('REPLACE THE CURRENT SAVED GAME?',center,67,10,'#e6a785','center');
+      text('BACKUP NEXT MISSION '+String(next).padStart(2,'0'),
+        center,91,11,C.cream,'center');
+      text(incoming.active.length+' SERVING   /   '+incoming.fallen.length+' FALLEN',
+        center,113,10,C.sand,'center');
+      text('THIS WILL OVERWRITE YOUR CURRENT',center,139,9,'#e6a785','center');
+      text('SOLDIERS, RANKS AND MEMORIAL.',center,153,9,'#e6a785','center');
+      backupConfirmButton={x:left+20,y:181,w:w-40,h:30};
+      button(backupConfirmButton.x,backupConfirmButton.y,backupConfirmButton.w,30,
+        'CONFIRM REPLACE SAVE','danger',true);
+      backupBackButton={x:left+20,y:228,w:w-40,h:29};
+      button(backupBackButton.x,backupBackButton.y,backupBackButton.w,29,
+        'CANCEL - KEEP CURRENT SAVE','back',false);
+    }else{
+      text('CURRENT: MISSION '+String(Math.min(CAMPAIGN_MISSIONS+1,career.nextMission)).padStart(2,'0'),
+        center,68,10,C.mint,'center');
+      text(career.active.length+' SERVING   /   '+career.fallen.length+' REMEMBERED',
+        center,82,9,C.sand,'center');
+      backupExportButton={x:left+20,y:103,w:w-40,h:34};
+      button(backupExportButton.x,backupExportButton.y,backupExportButton.w,34,
+        'EXPORT SAVE FILE','export',true);
+      backupImportButton={x:left+20,y:149,w:w-40,h:34};
+      button(backupImportButton.x,backupImportButton.y,backupImportButton.w,34,
+        'IMPORT SAVE FILE','import',false);
+      text(backupStatus,center,200,9,C.mint,'center');
+      backupBackButton={x:left+20,y:234,w:w-40,h:29};
+      button(backupBackButton.x,backupBackButton.y,backupBackButton.w,29,
+        'BACK TO CAMP','back',false);
+    }
   }
   function drawArchive(){
     shade(.91);
@@ -1592,6 +1784,7 @@
     else if(state==='won')drawEnd(true);
     else if(state==='lost')drawEnd(false);
     else if(state==='roster')drawArchive();
+    else if(state==='backup'||state==='backup-confirm')drawBackup();
     else if(state==='honours'||state==='memorial')drawMemorialScroll();
     // Border and small top HUD separators.
     if(state!=='honours'&&state!=='memorial')rect(HUD-3,0,3,WH,'#101711');
@@ -1654,6 +1847,20 @@
       if(career.nextMission<=CAMPAIGN_MISSIONS&&inside(p,titleStart))resetMission();
       else if(inside(p,rosterStart))showArchive('roster');
       else if(inside(p,memorialStart))showArchive('memorial');
+      else if(inside(p,backupStart))openBackup();
+      return;
+    }
+    if(state==='backup'||state==='backup-confirm'){
+      if(inside(p,backupBackButton)){
+        pendingBackup=null;
+        if(state==='backup-confirm')openBackup();
+        else state='title';
+      }else if(state==='backup-confirm'){
+        if(inside(p,backupConfirmButton))confirmBackupRestore();
+      }else{
+        if(inside(p,backupExportButton))exportBackup();
+        else if(inside(p,backupImportButton))importBackup();
+      }
       return;
     }
     if(state==='honours'||state==='memorial'){
@@ -1748,6 +1955,12 @@
   }
   function onKey(e){
     if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
+    if(state==='backup'||state==='backup-confirm'){
+      if(e.code==='Escape'){
+        if(state==='backup-confirm')openBackup();else state='title';
+      }else if(e.code==='Enter'&&state==='backup-confirm')confirmBackupRestore();
+      return;
+    }
     if((state==='honours'||state==='memorial')&&(e.code==='Enter'||e.code==='Space'||e.code==='Escape')){
       leaveMemorial();return;
     }

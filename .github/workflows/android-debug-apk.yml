@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'android/**'
+      - 'index.html'
+      - 'tests/**'
       - '.github/workflows/android-debug-apk.yml'
   workflow_dispatch:
 
@@ -52,13 +54,37 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: Configure persistent signing (optional)
+        env:
+          GREEN_DAWN_KEYSTORE_B64: ${{ secrets.GREEN_DAWN_KEYSTORE_B64 }}
+          GREEN_DAWN_KEYSTORE_PASSWORD: ${{ secrets.GREEN_DAWN_KEYSTORE_PASSWORD }}
+          GREEN_DAWN_KEY_ALIAS: ${{ secrets.GREEN_DAWN_KEY_ALIAS }}
+          GREEN_DAWN_KEY_PASSWORD: ${{ secrets.GREEN_DAWN_KEY_PASSWORD }}
+        run: |
+          if [ -n "$GREEN_DAWN_KEYSTORE_B64" ]; then
+            if [ -z "$GREEN_DAWN_KEYSTORE_PASSWORD" ] || [ -z "$GREEN_DAWN_KEY_ALIAS" ] || [ -z "$GREEN_DAWN_KEY_PASSWORD" ]; then
+              echo "::error::Persistent signing needs all four GitHub Actions secrets"
+              exit 1
+            fi
+            printf '%s' "$GREEN_DAWN_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/green-dawn.jks"
+            chmod 600 "$RUNNER_TEMP/green-dawn.jks"
+            echo "GREEN_DAWN_KEYSTORE_PATH=$RUNNER_TEMP/green-dawn.jks" >> "$GITHUB_ENV"
+            echo "Persistent signing certificate configured"
+          else
+            echo "::warning::Using a temporary debug certificate. Android may reject in-place upgrades"
+          fi
       - name: Build APK
         working-directory: android
+        env:
+          GREEN_DAWN_KEYSTORE_PASSWORD: ${{ secrets.GREEN_DAWN_KEYSTORE_PASSWORD }}
+          GREEN_DAWN_KEY_ALIAS: ${{ secrets.GREEN_DAWN_KEY_ALIAS }}
+          GREEN_DAWN_KEY_PASSWORD: ${{ secrets.GREEN_DAWN_KEY_PASSWORD }}
         run: gradle --no-daemon --stacktrace :app:assembleDebug
       - name: Verify output
         run: |
           test -s android/app/build/outputs/apk/debug/app-debug.apk
           sha256sum android/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs android/app/build/outputs/apk/debug/app-debug.apk
       - name: Upload APK for Android phone
         uses: actions/upload-artifact@v4
         with:
@@ -71,13 +97,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Campaign-v0.11-debug.apk
-          if gh release view v0.11.0 >/dev/null 2>&1; then
-            gh release upload v0.11.0 GreenDawn-Campaign-v0.11-debug.apk --clobber
+          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Campaign-v0.12-debug.apk
+          if gh release view v0.12.0 >/dev/null 2>&1; then
+            gh release upload v0.12.0 GreenDawn-Campaign-v0.12-debug.apk --clobber
           else
-            gh release create v0.11.0 GreenDawn-Campaign-v0.11-debug.apk \
+            gh release create v0.12.0 GreenDawn-Campaign-v0.12-debug.apk \
               --target "$GITHUB_SHA" \
-              --title "Green Dawn v0.11.0 — Android test build" \
-              --notes "Green Dawn v0.11 adds the third playable mission: RADAR BLACKOUT. Move through a new dark-green jungle and timber bridge, destroy the animated enemy radar installation, then reach extraction while enemy reinforcements arrive. Saved v0.10 campaigns with Mission 02 complete can advance immediately into Mission 03. No mission selection/replay; careers, memorials, retro artwork and controls are preserved. GitHub Actions now checks campaign progression and memorial logic before building. Debug APK signing may vary; uninstalling an earlier build deletes its locally saved campaign." \
+              --title "Green Dawn v0.12.0 — Android test build" \
+              --notes "Green Dawn v0.12 introduces local campaign backups and confirmed restoration. At Camp, choose SAVE DATA to export a portable JSON file through Android Files, or import and preview a backup before replacing your current save. Ranks, recruits, casualties, mission victories and pending memorials are included. Backup validation and 10 automated regression tests protect existing three-mission gameplay. Build workflow supports optional persistent signing using GitHub secrets, but uses temporary debug signing until keys are configured. CAUTION: uninstalling v0.11 will erase its local save; export in v0.12 cannot retroactively recover a deleted v0.11 save." \
               --prerelease
           fi
