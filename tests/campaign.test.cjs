@@ -83,7 +83,7 @@ function boot(save,ww2=false){
     '    get backupReady(){return !!pendingBackup;},',
     '    clearEnemies(){for(const e of enemies)e.alive=false;},',
     '    moveFirst(x,y){const s=soldiers.find(s=>s.alive);if(s){s.x=x;s.y=y;s.path=[];}},',
-    '    moveEveryone(x,y){soldiers.forEach((s,i)=>{if(s.alive){s.x=x+i*8;s.y=y+i*7;s.path=[];}});}',
+    '    moveEveryone(x,y){soldiers.forEach((s,i)=>{if(s.alive){s.x=x+i*8;s.y=y+i*7;s.path=[];}});},',
     '    destroyTarget(i=0){const target=norwayTargets[i];if(!target)throw Error("No target");target.hp=0;checkBunker(target);},',
     '    hurtConvoy(amount){if(norwayConvoy)norwayConvoy.health=Math.max(0,norwayConvoy.health-amount);},',
     '    cartToEnd(){if(norwayConvoy)norwayConvoy.index=norwayConvoy.waypoints.length;},',
