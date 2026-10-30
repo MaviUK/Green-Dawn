@@ -338,7 +338,8 @@ test('WWII career is independent of the completed jungle campaign and starts in 
     'WWII progress must not write to jungle storage');
   qa.leave();
   api.start();
-  assert.equal(api.status.state,'title','cannot replay cleared mission 01');
+  assert.equal(api.status.state,'playing','Mission 002 should unlock after Cold Landing');
+  assert.equal(api.status.mission,2,'the cleared first mission must not replay');
 });
 
 test('WWII and jungle backup formats cannot overwrite each other',()=>{
