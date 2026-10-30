@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="theme-color" content="#151d13">
-  <meta name="description" content="Green Dawn — an original 16-bit inspired squad tactics game. Mission 01: Jungle Assault.">
+  <meta name="description" content="Green Dawn — an original 16-bit inspired squad tactics game. Jungle Assault + Depot Raid. (2 playable missions)">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -32,7 +32,7 @@
   </main>
   <script>
 /*
-  GREEN DAWN v0.6 — MISSION 01: JUNGLE ASSAULT
+  GREEN DAWN v0.7 — TWO-MISSION CAMPAIGN
   Original game, procedural pixel art, original gameplay code and synthesized SFX.
   No art/music/code from Cannon Fodder or any other game is used.
 */
@@ -49,6 +49,7 @@
   const DIFFICULTY = { enemySight:142, enemyFire:1.50, gunRate:.18, moveSpeed:73, grenadeRadius:53 };
   const ENEMY_AI = {hearing:198, alertDuration:4.5, coverRadius:80, suppressionRadius:21};
   let W=512,VW=402,VH=CTRL_Y,state='title',mode='move',selected=-1,split=false;
+  let missionIndex=1,renderedMission=0; // two original jungle battlefields
   let cam={x:0,y:0}, pointer={x:0,y:0,wx:0,wy:0,down:false,firePointer:null};
   const HOLD_TO_FIRE_MS=240; // one finger: quick tap moves, long hold shoots
   const MARCH_GAP=19, TRAIL_STEP=3, TRAIL_LIMIT=620; // one-file marching, each soldier follows actual footsteps
@@ -56,11 +57,11 @@
   let hudPress=null; // hold a soldier row to transfer between Alpha and Bravo
   let soldiers=[],enemies=[],bullets=[],bombs=[],particles=[],decals=[],trees=[],rocks=[];
   let gunEffects=[],fallenBodies=[]; // tiny transient pixel art combat effects
-  let bunker,ammo,terrain,mapData=[],clock=0,shotClock=0,fireUntil=0,aim={x:0,y:0};
+  let bunker,ammo,extraction={x:319,y:91,r:25},terrain,mapData=[],clock=0,shotClock=0,fireUntil=0,aim={x:0,y:0};
   let score=0,kills=0,grenades=3,started=0,freeze=0,message='',messageTime=0,panHint=0;
   let timeNow=0,mouseRight=false,hasAudio=false,audioOn=true,audioCtx=null,objectiveArrow=0;
   let playerShots=0;
-  let saved={wins:0,bestScore:0,bestSurvivors:0};
+  let saved={wins:0,bestScore:0,bestSurvivors:0,completed:[]};
   // A small settings key that survives a native WebView restart.
   try {audioOn=localStorage.getItem('green-dawn-audio-v2')!=='off';}catch(_){}
   let seed=1;
@@ -73,10 +74,15 @@
   let pathLine=[{x:92,y:590},{x:227,y:539},{x:355,y:443},{x:498,y:359},{x:601,y:331},{x:718,y:284},{x:820,y:209},{x:883,y:143}];
 
   function loadSave(){
-    try {const d=JSON.parse(localStorage.getItem('green-dawn-career-v1')||'{}');saved={...saved,...d};}catch(_){/* file:// storage may be unavailable */}
+    try {const d=JSON.parse(localStorage.getItem('green-dawn-career-v1')||'{}');saved={...saved,...d};
+      if(!Array.isArray(saved.completed))saved.completed=[];
+      if(saved.wins>0&&!saved.completed.includes(1))saved.completed.push(1);
+    }catch(_){/* file:// storage may be unavailable */}
   }
   function saveCareer(){
-    try{saved.wins++;saved.bestScore=Math.max(saved.bestScore,score);saved.bestSurvivors=Math.max(saved.bestSurvivors,soldiers.filter(s=>s.alive).length);localStorage.setItem('green-dawn-career-v1',JSON.stringify(saved));}catch(_){}
+    try{saved.wins++;saved.bestScore=Math.max(saved.bestScore,score);saved.bestSurvivors=Math.max(saved.bestSurvivors,soldiers.filter(s=>s.alive).length);
+      if(!saved.completed.includes(missionIndex))saved.completed.push(missionIndex);
+      localStorage.setItem('green-dawn-career-v1',JSON.stringify(saved));}catch(_){}
   }
 
   function resize(){
@@ -100,13 +106,20 @@
   }
 
   function generateTerrain(){
-    seed=378194;
+    seed=missionIndex===2?684291:378194;
+    // The depot raid uses an eastern insertion route crossing the bridge to the west.
+    pathLine=missionIndex===2?[{x:895,y:560},{x:807,y:482},{x:744,y:411},{x:684,y:331},
+      {x:624,y:331},{x:565,y:331},{x:453,y:266},{x:347,y:240},{x:250,y:239},
+      {x:118,y:239},{x:93,y:166},{x:160,y:95},{x:319,y:91}]:
+      [{x:92,y:590},{x:227,y:539},{x:355,y:443},{x:498,y:359},
+       {x:601,y:331},{x:718,y:284},{x:820,y:209},{x:883,y:143}];
     trees=[];rocks=[];
     terrain=document.createElement('canvas');terrain.width=MW;terrain.height=MH;
     const g=terrain.getContext('2d');g.imageSmoothingEnabled=false;
-    g.fillStyle='#60793c';g.fillRect(0,0,MW,MH);
+    g.fillStyle=missionIndex===2?'#536b43':'#60793c';g.fillRect(0,0,MW,MH);
     // A distinctive, original dithered 16-bit green jungle ground.
-    const greens=['#6b843d','#546d35','#5b7539','#64813d','#779248','#4b682f','#819b50'];
+    const greens=missionIndex===2?['#536d44','#435e40','#677b47','#5b7341','#71824b','#3d5b39','#829253']:
+      ['#6b843d','#546d35','#5b7539','#64813d','#779248','#4b682f','#819b50'];
     for(let y=0;y<MH;y+=4) for(let x=0;x<MW;x+=4){
       const rr=rng(),distance=lineDistance(x,y,pathLine);
       if(rr<.22||rr>.83){g.fillStyle=greens[(rng()*greens.length)|0];g.fillRect(x,y,4,4);}
@@ -157,7 +170,9 @@
       const x=rnd(10,MW-10),y=rnd(10,MH-10),r=rnd(10,19);
       if(lineDistance(x,y,pathLine)<42+r*.4) continue;
       if(Math.abs(x-riverX(y))<44+r) continue;
-      if(dist(x,y,110,576)<70||dist(x,y,885,145)<81) continue;
+      if(missionIndex===2){
+        if(dist(x,y,900,566)<84||dist(x,y,204,185)<80||dist(x,y,extraction.x,extraction.y)<52)continue;
+      }else if(dist(x,y,110,576)<70||dist(x,y,885,145)<81) continue;
       if(trees.some(t=>dist(x,y,t.x,t.y)<(r+t.r)*.68))continue;
       trees.push({x:Math.floor(x),y:Math.floor(y),r:Math.floor(r),kind:(rng()*4)|0});
     }
@@ -182,7 +197,7 @@
     // Darken world boundaries, visually separate the playable area.
     g.fillStyle='#233526';g.fillRect(0,0,MW,6);g.fillRect(0,MH-6,MW,6);
     g.fillRect(0,0,6,MH);g.fillRect(MW-6,0,6,MH);
-    buildNav();
+    buildNav();renderedMission=missionIndex;
   }
   function drawRoute(g,points){g.beginPath();g.moveTo(points[0].x,points[0].y);for(let i=1;i<points.length;i++)g.lineTo(points[i].x,points[i].y);g.stroke();}
   function drawTree(g,t){
@@ -222,7 +237,9 @@
   function blocked(x,y,margin=4){
     if(x<12||y<12||x>MW-13||y>MH-13) return true;
     if(inRiver(x,y)&&!onBridge(x,y))return true;
-    if(x>858-margin&&x<919+margin&&y>114-margin&&y<166+margin)return true;
+    if(missionIndex===2){
+      if(x>165-margin&&x<246+margin&&y>150-margin&&y<215+margin)return true;
+    }else if(x>858-margin&&x<919+margin&&y>114-margin&&y<166+margin)return true;
     for(const t of trees){if(Math.abs(x-t.x)>t.r+margin+3||Math.abs(y-t.y)>t.r+margin+3)continue;if(dist(x,y,t.x,t.y)<t.r*.72+margin)return true;}
     return false;
   }
@@ -302,25 +319,33 @@
     return smooth;
   }
 
-  function resetMission(){
+  function resetMission(level=missionIndex){
+    missionIndex=level===2?2:1;
+    if(renderedMission!==missionIndex)generateTerrain();
     state='playing';mode='move';selected=-1;split=false;clock=0;started=performance.now()/1000;
     cancelGesture();shotClock=0;score=0;kills=0;grenades=3;freeze=0;playerShots=0;
+    const insertion=missionIndex===2?[[901,566],[887,580],[915,586]]:[[111,573],[95,592],[120,604]];
     soldiers=[
-      {name:'JAX',x:111,y:573,alive:true,rank:1,fire:0,path:[],face:-.6,id:0,team:'A',color:'#4f803d'},
-      {name:'ACE',x:95,y:592,alive:true,rank:1,fire:.05,path:[],face:-.6,id:1,team:'A',color:'#637e3d'},
-      {name:'PIP',x:120,y:604,alive:true,rank:1,fire:.1,path:[],face:-.6,id:2,team:'A',color:'#779447'}
+      {name:'JAX',x:insertion[0][0],y:insertion[0][1],alive:true,rank:1,fire:0,path:[],face:-.6,id:0,team:'A',color:'#4f803d'},
+      {name:'ACE',x:insertion[1][0],y:insertion[1][1],alive:true,rank:1,fire:.05,path:[],face:-.6,id:1,team:'A',color:'#637e3d'},
+      {name:'PIP',x:insertion[2][0],y:insertion[2][1],alive:true,rank:1,fire:.1,path:[],face:-.6,id:2,team:'A',color:'#779447'}
     ];
-    const posts=[[287,498],[392,429],[501,344],[565,330],[701,282],[775,239],[822,197],[906,238],[863,315]];
+    const posts=missionIndex===2?
+      [[796,457],[733,390],[667,320],[562,318],[441,275],[346,213],[262,261],[112,200],[275,150],[202,236]]:
+      [[287,498],[392,429],[501,344],[565,330],[701,282],[775,239],[822,197],[906,238],[863,315]];
     enemies=posts.map((p,i)=>({x:p[0],y:p[1],homeX:p[0],homeY:p[1],id:i,health:1,alive:true,
       dir:(i*2.2)%6.28,fire:rand(.5,1.4),wander:rand(.7,3),patrolX:p[0],patrolY:p[1],seen:false,
       tactic:'patrol',alert:0,aimTime:0,suppressed:0,coverTime:0,coverCooldown:0,
       coverPath:[],investigatePath:[],investigateTimer:0,lastKnown:null,burstFlash:0}));
-    bunker={x:871,y:119,w:67,h:53,hp:8,maxHp:8,dead:false};
-    ammo={x:461,y:371,taken:false};
+    bunker=missionIndex===2?{x:174,y:157,w:67,h:53,hp:10,maxHp:10,dead:false,kind:'depot'}:
+      {x:871,y:119,w:67,h:53,hp:8,maxHp:8,dead:false,kind:'radio'};
+    ammo=missionIndex===2?{x:746,y:398,taken:false}:{x:461,y:371,taken:false};
+    extraction={x:319,y:91,r:25};
     bullets=[];bombs=[];particles=[];decals=[];gunEffects=[];fallenBodies=[];
-    message='REACH THE RADIO BUNKER';messageTime=5.2;panHint=7;
-    aim={x:700,y:300};
-    cam.x=clamp(111-VW*.34,0,MW-VW);cam.y=clamp(573-VH*.70,0,MH-VH);
+    message=missionIndex===2?'DESTROY THE DEPOT  /  REACH EXTRACTION':'REACH THE RADIO BUNKER';
+    messageTime=5.2;panHint=7;
+    aim={x:bunker.x+bunker.w/2,y:bunker.y+bunker.h/2};
+    cam.x=clamp(insertion[0][0]-VW*.34,0,MW-VW);cam.y=clamp(insertion[0][1]-VH*.70,0,MH-VH);
     sound('start');
   }
   function currentSoldiers(){
@@ -628,13 +653,19 @@
     }
     for(const s of soldiers){if(s.alive&&dist(x,y,s.x,s.y)<22)killSoldier(s);}
   }
+  function finishMission(){
+    if(state!=='playing')return;
+    const survivors=soldiers.filter(s=>s.alive).length;
+    score+=survivors*250+grenades*30;
+    state='won';saveCareer();sound('victory');
+    cancelGesture();
+  }
   function checkBunker(){
     if(bunker.dead||bunker.hp>0)return;
     bunker.dead=true;score+=500;
     explodeBunker();
-    const survivors=soldiers.filter(s=>s.alive).length;
-    score+=survivors*250+grenades*30;
-    state='won';saveCareer();sound('victory');
+    if(missionIndex===1)finishMission();
+    else {flash('DEPOT DESTROYED! REACH EXTRACTION!',3.8);sound('start');}
   }
   function explodeBunker(){
     for(let i=0;i<4;i++)addParticles(bunker.x+rand(0,bunker.w),bunker.y+rand(0,bunker.h),'#f3b95c',20,100,'explosion');
@@ -805,6 +836,10 @@
     for(let i=decals.length-1;i>=0;i--){decals[i].life-=dt;if(decals[i].life<=0)decals.splice(i,1);}
     for(let i=gunEffects.length-1;i>=0;i--){gunEffects[i].life-=dt;if(gunEffects[i].life<=0)gunEffects.splice(i,1);}
     for(let i=fallenBodies.length-1;i>=0;i--){fallenBodies[i].life-=dt;if(fallenBodies[i].life<=0)fallenBodies.splice(i,1);}
+    if(state==='playing'&&missionIndex===2&&bunker.dead&&
+       soldiers.some(s=>s.alive&&dist(s.x,s.y,extraction.x,extraction.y)<extraction.r)){
+      finishMission();
+    }
     followCamera(dt);
   }
   function clampCamera(){cam.x=clamp(cam.x,0,Math.max(0,MW-VW));cam.y=clamp(cam.y,0,MH-VH);}
@@ -852,6 +887,27 @@
   function drawBunker(){
     const b=bunker,x=b.x,y=b.y,w=b.w,h=b.h;
     rect(x-7,y+h-1,w+13,11,'#26301f');
+    if(missionIndex===2){
+      if(b.dead){
+        rect(x-4,y-5,w+7,h+10,'#403c2b');rect(x+4,y+6,w-7,h-11,'#25271f');
+        for(let i=0;i<21;i++){rect(x+(i*13)%w,y+(i*23)%h,7+(i%3)*2,4,i%2?'#a06d3d':'#575d43');}
+        return;
+      }
+      // Reinforced depot with original rusted metal roof and explosive tanks.
+      rect(x-5,y-5,w+10,h+10,'#2e372c');rect(x,y,w,h,'#826e4d');
+      rect(x+4,y+5,w-8,h-10,'#4a574b');
+      for(let i=0;i<5;i++)rect(x+5,y+8+i*8,w-10,2,'#6c7c6b');
+      for(let i=0;i<3;i++){
+        const tx=x+7+i*20;
+        rect(tx,y+18,16,26,'#392d26');rect(tx+2,y+11,12,31,'#aa633b');
+        rect(tx+4,y+8,8,4,'#d3a06b');rect(tx+4,y+22,8,4,'#d6b05b');
+        rect(tx+6,y+31,4,4,'#6c3627');
+      }
+      rect(x+1,y+h-8,w-2,7,'#917b56');
+      if(b.hp<b.maxHp){rect(x+3,y-13,w-6,4,'#20271e');
+        rect(x+3,y-13,(w-6)*clamp(b.hp/b.maxHp,0,1),4,'#efc46d');}
+      return;
+    }
     if(b.dead){
       rect(x,y,w,h,'#3f3b2b');rect(x+5,y+6,w-10,h-11,'#171e1a');
       for(let i=0;i<13;i++){rect(x+(i*13)%w,y+(i*9)%h,7,5,i%2?'#595441':'#847753');}
@@ -882,6 +938,19 @@
     rect(x-4,y-1,9,3,'#ebd783');
     if((clock*3|0)%2===0)stroke(x-11,y-11,23,19,'#eaca71');
   }
+  function drawExtraction(){
+    if(missionIndex!==2)return;
+    const {x,y}=extraction,active=bunker.dead;
+    ctx.save();ctx.strokeStyle=active?'#f4dc86':'#8ba084';ctx.lineWidth=2;
+    ctx.globalAlpha=active?(.65+Math.sin(clock*5)*.3):.6;
+    ctx.strokeRect(x-23.5,y-21.5,47,43);
+    ctx.strokeRect(x-19.5,y-17.5,39,35);
+    ctx.globalAlpha=1;
+    rect(x-3,y-11,6,22,active?'#edcc6f':'#70866d');
+    rect(x-12,y-2,24,5,active?'#edcc6f':'#70866d');
+    text(active?'EXTRACT':'LANDING ZONE',x,y+25,8,active?C.gold:C.mint,'center');
+    ctx.restore();
+  }
   function drawWorld(){
     ctx.save();ctx.beginPath();ctx.rect(HUD,0,VW,VH);ctx.clip();
     ctx.imageSmoothingEnabled=false;
@@ -889,7 +958,7 @@
     ctx.translate(Math.round(HUD-cam.x),-Math.round(cam.y));
     for(const d of decals){ctx.globalAlpha=clamp(d.life/13,0,.85);ctx.fillStyle=d.color;
       ctx.fillRect(d.x-(d.r||6),d.y-(d.r||6)/2,(d.r||6)*2,(d.r||6));ctx.globalAlpha=1;}
-    drawBunker();drawAmmo();
+    drawBunker();drawAmmo();drawExtraction();
     // Destination markers and formation trails.
     if(state==='playing')for(const s of soldiers){
       if(!s.alive||!s.path.length)continue;
@@ -961,14 +1030,19 @@
     }
     ctx.restore();
     // Upper objective banner and directional arrow when off-camera.
-    rect(HUD+8,5,153,21,'#152018d9');
-    text('01  DESTROY RADIO BASE',HUD+16,10,9,C.cream);
-    const bx=bunker.x+bunker.w/2-cam.x,by=bunker.y+bunker.h/2-cam.y;
-    if(!bunker.dead&&(bx<4||bx>VW-10||by<20||by>VH-14)){
-      const px=clamp(bx,12,VW-14),py=clamp(by,34,VH-18),ang=Math.atan2(by-VH*.5,bx-VW*.5);
-      ctx.save();ctx.translate(HUD+px,py);ctx.rotate(ang);
-      ctx.fillStyle=C.gold;ctx.beginPath();ctx.moveTo(11,0);ctx.lineTo(-8,-7);ctx.lineTo(-4,0);ctx.lineTo(-8,7);ctx.closePath();ctx.fill();ctx.restore();
-      text('TARGET',HUD+px-19,py+10,8,C.gold);
+    if(state==='playing'){
+      rect(HUD+8,5,182,21,'#152018d9');
+      text(missionIndex===2?(bunker.dead?'02  REACH EXTRACTION':'02  DESTROY SUPPLY DEPOT'):
+        '01  DESTROY RADIO BASE',HUD+16,10,9,C.cream);
+      const objective=missionIndex===2&&bunker.dead?extraction:
+        {x:bunker.x+bunker.w/2,y:bunker.y+bunker.h/2};
+      const bx=objective.x-cam.x,by=objective.y-cam.y;
+      if((missionIndex===2||!bunker.dead)&&(bx<4||bx>VW-10||by<20||by>VH-14)){
+        const px=clamp(bx,12,VW-14),py=clamp(by,34,VH-18),ang=Math.atan2(by-VH*.5,bx-VW*.5);
+        ctx.save();ctx.translate(HUD+px,py);ctx.rotate(ang);
+        ctx.fillStyle=C.gold;ctx.beginPath();ctx.moveTo(11,0);ctx.lineTo(-8,-7);ctx.lineTo(-4,0);ctx.lineTo(-8,7);ctx.closePath();ctx.fill();ctx.restore();
+        text(missionIndex===2&&bunker.dead?'EVAC':'TARGET',HUD+px-19,py+10,8,C.gold);
+      }
     }
     if(state==='playing'&&messageTime>0&&message){
       const width=clamp(message.length*6+20,160,VW-28),x=HUD+VW/2-width/2;
@@ -981,6 +1055,7 @@
     for(const t of trees){const tx=x+t.x/MW*w,ty=y+t.y/MH*h;ctx.fillStyle='#466a31';ctx.fillRect(tx|0,ty|0,2,2);}
     for(let yy=0;yy<h;yy+=2){let xx=x+riverX(yy/h*MH)/MW*w;rect(xx,y+yy,5,2,'#4a858c');}
     rect(x+bunker.x/MW*w,y+bunker.y/MH*h,4,4,bunker.dead?'#5b5b47':'#f6c76b');
+    if(missionIndex===2)rect(x+extraction.x/MW*w-2,y+extraction.y/MH*h-2,5,5,bunker.dead?'#f6e08a':'#6c8d79');
     for(const e of enemies)if(e.alive)rect(x+e.x/MW*w,y+e.y/MH*h,2,2,'#b75e44');
     for(const s of soldiers)if(s.alive)rect(x+s.x/MW*w,y+s.y/MH*h,3,3,
       split?(s.team==='A'?'#f5d477':'#83d1d8'):'#e4e7b8');
@@ -992,7 +1067,7 @@
     rect(0,0,HUD,WH,C.hud);rect(HUD-3,0,3,WH,'#0e150e');
     rect(0,0,HUD,38,'#101b15');rect(0,38,HUD,3,'#728246');
     text('GREEN DAWN',8,7,13,C.sand);
-    text('TACTICAL COMMAND',8,24,7,C.mint);
+    text(missionIndex===2?'02  DEPOT RAID':'01  JUNGLE ASSAULT',8,24,7,C.mint);
     if(!split){
       rect(5,47,100,18,selected===-1?'#607542':'#303e29');
       stroke(5,47,100,18,selected===-1?'#d4be73':'#65724a');
@@ -1058,21 +1133,24 @@
   }
   function shade(alpha=.70){ctx.fillStyle=`rgba(7,12,9,${alpha})`;ctx.fillRect(HUD,0,VW,VH);}
   function panel(x,y,w,h){rect(x,y,w,h,'#18241de8');stroke(x,y,w,h,'#9b9f61',2);rect(x+3,y+3,w-6,3,'#536b3f');}
-  let titleStart={x:0,y:0,w:0,h:0},resultStart={x:0,y:0,w:0,h:0};
+  let titleStart={x:0,y:0,w:0,h:0},missionTwoStart={x:0,y:0,w:0,h:0};
+  let resultStart={x:0,y:0,w:0,h:0},resultAlt={x:0,y:0,w:0,h:0};
   function drawTitle(){
     shade(.80);
-    const x=HUD+VW/2, narrow=VW<450;
+    const x=HUD+VW/2;
     text('A PIXEL TACTICS ORIGINAL',x,21,9,C.sand,'center');
     text('GREEN',x,48,36,C.cream,'center');
     text('DAWN',x,81,36,C.gold,'center');
     rect(x-105,125,210,3,'#c6aa65');
-    text('MISSION 01: JUNGLE ASSAULT',x,138,11,C.mint,'center');
-    text('3 SOLDIERS  /  1 RADIO BUNKER',x,156,9,'#c1d4a7','center');
-    const bw=Math.min(228,VW-50),bh=37;titleStart={x:x-bw/2,y:183,w:bw,h:bh};
-    button(titleStart.x,titleStart.y,bw,bh,'►  DEPLOY SQUAD','start',true);
-    text('TAP TO MOVE  ·  HOLD TO FIRE',x,232,9,'#c6d4a9','center');
-    text('SPLIT ALPHA / BRAVO IN MISSION',x,244,8,'#98ad87','center');
-    if(saved.wins>0)text(`MISSIONS CLEARED ${saved.wins}  •  BEST ${saved.bestScore}`,x,265,8,C.sand,'center');
+    text('SELECT OPERATION',x,139,12,C.mint,'center');
+    const bw=Math.min(234,VW-36),bh=33;
+    titleStart={x:x-bw/2,y:162,w:bw,h:bh};
+    missionTwoStart={x:x-bw/2,y:201,w:bw,h:bh};
+    button(titleStart.x,titleStart.y,bw,bh,
+      saved.completed.includes(1)?'01 JUNGLE ASSAULT  *':'01 JUNGLE ASSAULT','start',true);
+    button(missionTwoStart.x,missionTwoStart.y,bw,bh,
+      saved.completed.includes(2)?'02 DEPOT RAID  *':'02 DEPOT RAID  NEW','start',true);
+    text('TAP MOVE  /  HOLD FIRE  /  SPLIT SQUAD',x,241,8,'#c6d4a9','center');
   }
   function drawPause(){
     shade(.75);const x=HUD+VW/2;
@@ -1085,17 +1163,19 @@
   function drawEnd(won){
     shade(.82);const x=HUD+VW/2;
     text(won?'MISSION COMPLETE':'MISSION FAILED',x,27,won?24:25,won?C.gold:'#e78a6d','center');
-    text(won?'RADIO BUNKER DESTROYED':'ALPHA SQUAD LOST',x,65,11,C.cream,'center');
+    text(won?(missionIndex===2?'DEPOT DESTROYED  /  SQUAD EXTRACTED':'RADIO BUNKER DESTROYED'):
+      'SQUAD LOST',x,65,10,C.cream,'center');
     rect(x-127,84,254,2,'#71834f');
-    const alive=soldiers.filter(s=>s.alive).length;
     text('ROLL CALL',x,97,10,C.mint,'center');
     soldiers.forEach((s,i)=>{
       text(`${s.name}  ${s.alive?'SURVIVED  ★':'KIA   ×'}`,x,115+i*16,11,s.alive?'#d9e4b3':'#d97f6a','center');
     });
     text(`ENEMIES ${String(kills).padStart(2,'0')}    SCORE ${score}`,x,168,11,C.sand,'center');
-    const w=Math.min(222,VW-50);resultStart={x:x-w/2,y:201,w,h:38};
-    button(resultStart.x,resultStart.y,w,38,won?'►  REPLAY MISSION':'►  TRY AGAIN','retry',true);
-    text(won?'PROGRESS SAVED ON THIS DEVICE':'KEEP YOUR SQUAD OUT OF ENEMY FIRE',x,247,8,'#9fad87','center');
+    const w=Math.min(222,VW-50);
+    resultStart={x:x-w/2,y:186,w,h:31};resultAlt={x:x-w/2,y:222,w,h:27};
+    const buttonText=won&&missionIndex===1?'NEXT: DEPOT RAID':won?'REPLAY MISSION':'TRY AGAIN';
+    button(resultStart.x,resultStart.y,w,31,buttonText,'retry',true);
+    button(resultAlt.x,resultAlt.y,w,27,'MISSION SELECT','title',false);
   }
   function draw(){
     rect(0,0,W,WH,'#141c15');
@@ -1163,9 +1243,14 @@
     canvas.focus();audioInit();
     const p=where(e);Object.assign(pointer,p);pointer.down=true;
     try{canvas.setPointerCapture(e.pointerId);}catch(_){}
-    if(state==='title'){if(inside(p,titleStart))resetMission();return;}
+    if(state==='title'){if(inside(p,titleStart))resetMission(1);
+      else if(inside(p,missionTwoStart))resetMission(2);return;}
     if(state==='paused'){if(inside(p,resultStart))state='playing';return;}
-    if(state==='won'||state==='lost'){if(inside(p,resultStart))resetMission();return;}
+    if(state==='won'||state==='lost'){
+      if(inside(p,resultStart)){const next=state==='won'&&missionIndex===1?2:missionIndex;resetMission(next);}
+      else if(inside(p,resultAlt)){cancelGesture();state='title';}
+      return;
+    }
     if(p.x<HUD){
       if(p.y>=47&&p.y<66){if(split)chooseTeam(p.x<55?'A':'B');else chooseSquad(-1);}
       else if(p.y>=69&&p.y<165){
@@ -1228,8 +1313,8 @@
       if(state==='playing'){state='paused';cancelGesture();}
       else if(state==='paused')state='playing';return;
     }
-    if(state==='title'&&(e.code==='Enter'||e.code==='Space')){audioInit();resetMission();return;}
-    if(state==='won'||state==='lost'){if(e.code==='Enter'||e.code==='Space'){audioInit();resetMission();}return;}
+    if(state==='title'&&(e.code==='Enter'||e.code==='Space')){audioInit();resetMission(1);return;}
+    if(state==='won'||state==='lost'){if(e.code==='Enter'||e.code==='Space'){audioInit();resetMission(state==='won'&&missionIndex===1?2:missionIndex);}return;}
     if(state!=='playing')return;
     if(e.code==='Digit0')chooseSquad(-1);
     if(e.code==='KeyX')toggleSplit();
@@ -1275,7 +1360,7 @@
   cam={x:0,y:MH-VH};
   // Expose a tiny read-only test surface to catch playability regressions.
   Object.defineProperty(window,'GREEN_DAWN_TEST',{value:{
-    get status(){return {state,mode,score,kills,grenades,alive:soldiers.filter(s=>s.alive).length,enemyCount:enemies.filter(e=>e.alive).length,bunkerHp:bunker.hp,camera:{...cam},time:clock};},
+    get status(){return {state,mission:missionIndex,mode,score,kills,grenades,alive:soldiers.filter(s=>s.alive).length,enemyCount:enemies.filter(e=>e.alive).length,bunkerHp:bunker.hp,bunkerDead:bunker.dead,extraction:{...extraction},completed:[...saved.completed],camera:{...cam},time:clock};},
     get controls(){return {pending:!!(gesture&&!gesture.firing),firing:!!(gesture&&gesture.firing),shotsFired:playerShots,aim:{...aim},holdMs:HOLD_TO_FIRE_MS};},
     get roster(){return soldiers.map(s=>({name:s.name,x:s.x,y:s.y,alive:s.alive,team:s.team,followId:s.followId??null,followGap:s.followGap||0,trailPoints:s.trail?.length||0,followGoal:s.followGoal||null,pathLength:s.path.length,destination:s.path.at(-1)||null}));},
     get squads(){return {split,selected,alpha:soldiers.filter(s=>s.alive&&s.team==='A').map(s=>s.name),bravo:soldiers.filter(s=>s.alive&&s.team==='B').map(s=>s.name)};},
@@ -1288,9 +1373,10 @@
     commandMove:(x,y,leadId)=>moveSquad(x,y,leadId),
     commandFire:(x,y)=>{beginFire(x,y);fireUntil=clock+2.5;},
     commandGrenade:(x,y)=>throwGrenade(x,y),
-    start:()=>resetMission(),
+    start:(level=1)=>resetMission(level),
     select:(id)=>chooseSquad(id),
     setMode:(id)=>setMode(id),
+    missionSelect:()=>{cancelGesture();state='title';},
     get walkable(){return mapData.filter(Boolean).length;},
     path:(ax,ay,bx,by)=>pathfind(ax,ay,bx,by)
   }});

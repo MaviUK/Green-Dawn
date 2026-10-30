@@ -69,13 +69,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Mission01-v0.6-debug.apk
-          if gh release view v0.6.0 >/dev/null 2>&1; then
-            gh release upload v0.6.0 GreenDawn-Mission01-v0.6-debug.apk --clobber
+          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Mission01-v0.7-debug.apk
+          if gh release view v0.7.0 >/dev/null 2>&1; then
+            gh release upload v0.7.0 GreenDawn-Mission01-v0.7-debug.apk --clobber
           else
-            gh release create v0.6.0 GreenDawn-Mission01-v0.6-debug.apk \
+            gh release create v0.7.0 GreenDawn-Mission01-v0.7-debug.apk \
               --target "$GITHUB_SHA" \
-              --title "Green Dawn v0.6.0 — Android test build" \
-              --notes "Version 0.6: clearer pixel muzzle flashes, bullet tracers and impact sparks, visible fallen soldiers, guards that investigate shots, line-of-sight through tree cover, and suppression/cover reactions. Keeps v0.5 split squads, footstep formations, and tap-to-move hold-to-fire controls." \
+              --title "Green Dawn v0.7.0 — Android test build" \
+              --notes "Green Dawn v0.7 adds Mission 02: Depot Raid. Start on the opposite side of a newly generated jungle map, cross the river, destroy the enemy supply depot, and reach extraction. Replay Mission 01 from the new mission selection screen. Original tap-to-move, hold-to-fire, Alpha/Bravo split squads and formation systems retained." \
               --prerelease
           fi
