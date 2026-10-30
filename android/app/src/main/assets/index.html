@@ -72,11 +72,10 @@
   let career={nextMission:1,nextId:0,active:[],fallen:[],victories:[],bestScore:0};
   let afterAction={mission:1,fallen:[],promotions:[],newRecruits:[],score:0};
   let missionLossStart=0,archiveScroll=0,archiveFinger=null;
-  // An automatic, full-screen remembrance roll is shown after EVERY mission.
-  // The roll also remains accessible from the camp, with each fallen hero's
-  // final rank preserved at the time of death.
+  // The automatic ceremony shows ONLY casualties from the latest operation.
+  // The camp Memorial keeps the complete, permanent roll of honour.
   let memorialOffset=-48,memorialFinger=null,memorialHoldUntil=0;
-  let memorialReturn='title',memorialOperation=1,memorialRecent=[],memorialAutomatic=false;
+  let memorialReturn='title',memorialOperation=1,memorialRecent=[],memorialAutomatic=false,memorialMissionOnly=false;
   let memorialButton={x:0,y:0,w:0,h:0},memorialWindow={x:0,y:0,w:0,h:0};
   const operationName=n=>n===1?'JUNGLE ASSAULT':n===2?'DEPOT RAID':'AWAITING ORDERS';
   // A small settings key that survives a native WebView restart.
@@ -130,14 +129,21 @@
     }
     return deployment();
   }
-  function enterMemorial(auto=false,returnTo='title'){
+  function enterMemorial(auto=false,returnTo='title',missionOnly=auto){
     cancelGesture();archiveFinger=null;memorialFinger=null;
     memorialOffset=-48;memorialHoldUntil=0;
     memorialAutomatic=auto;
+    memorialMissionOnly=missionOnly;
     memorialReturn=returnTo;
-    memorialOperation=auto?missionIndex:Math.max(1,Math.min(2,career.nextMission-1));
-    memorialRecent=auto?afterAction.fallen.map(s=>s.id):[];
+    memorialOperation=missionOnly?missionIndex:Math.max(1,Math.min(2,career.nextMission-1));
+    memorialRecent=missionOnly?afterAction.fallen.map(s=>s.id):[];
     state=auto?'honours':'memorial';
+  }
+  function memorialEntries(){
+    if(!memorialMissionOnly)return career.fallen;
+    // Compare both ID and operation: no historical names on a mission ceremony.
+    const currentIds=new Set(memorialRecent);
+    return career.fallen.filter(f=>f.mission===memorialOperation&&currentIds.has(f.id));
   }
   function startAfterAction(result){
     afterAction.score=score;
@@ -1255,21 +1261,83 @@
     if(next==='memorial'){enterMemorial(false,state);return;}
     state=next;cancelGesture();archiveScroll=0;archiveFinger=null;
   }
-  function memorialMaximum(){return career.fallen.length*42+75;}
+  function memorialMaximum(){
+    const count=memorialEntries().length;
+    return count?count*42+75:-48;
+  }
   function memorialScrollArea(){
     const width=Math.min(W-34,530);
     return {x:(W-width)/2+20,y:99,w:width-40,h:112};
   }
+  // Tiny original embroidered insignia, built from sharp, unsmoothed 16-bit pixels.
+  // Enlisted ranks have ^ chevrons; NCOs add rockers; officers have bars/stars.
+  function drawRankChevron(cx,y,color){
+    for(let step=0;step<5;step++){
+      const yy=y+8-step*2;
+      const lx=cx-10+step*2,rx=cx+8-step*2;
+      rect(lx+1,yy+1,3,3,'#1e2a20');
+      rect(rx+1,yy+1,3,3,'#1e2a20');
+      rect(lx,yy,3,2,color);
+      rect(rx,yy,3,2,color);
+    }
+  }
+  function drawRankInsignia(rank,x,y){
+    const r=clamp(Number(rank)||0,0,RANKS.length-1),gold='#efc768';
+    rect(x,y,31,31,'#324331');
+    rect(x+2,y+2,27,27,'#46573d');
+    stroke(x,y,31,31,'#927749');
+    rect(x+3,y+3,3,3,'#627451');
+    rect(x+25,y+24,3,3,'#627451');
+    const cx=x+15;
+    if(r===0){
+      // Recruits have an unadorned field mark.
+      rect(cx-3,y+12,7,7,gold);
+      rect(cx-1,y+10,3,11,'#f5db95');
+    }else if(r<=5){
+      const count=Math.min(3,r),top=r>=4?0:count===1?10:count===2?6:1;
+      const gap=r>=4?7:9;
+      for(let i=0;i<count;i++)drawRankChevron(cx,y+top+i*gap,gold);
+      if(r>=4)rect(x+9,y+25,13,2,gold);
+      if(r===5)rect(x+11,y+28,9,2,gold);
+    }else if(r===6){
+      // Warrant officer: pixelated diamond.
+      rect(cx-2,y+5,5,4,gold);
+      rect(cx-6,y+9,13,4,gold);
+      rect(cx-10,y+13,21,4,gold);
+      rect(cx-6,y+17,13,4,gold);
+      rect(cx-2,y+21,5,4,gold);
+    }else if(r===7||r===8){
+      // Commissioned officers: one or two gold bars.
+      for(const bx of (r===7?[cx-3]:[cx-9,cx+4])){
+        rect(bx,y+7,6,19,'#ae853b');
+        rect(bx+1,y+8,4,17,gold);
+      }
+    }else if(r===9){
+      // Major: a small pixel star.
+      rect(cx-1,y+5,3,7,gold);
+      rect(cx-8,y+11,17,4,gold);
+      rect(cx-5,y+15,11,4,gold);
+      rect(cx-3,y+19,7,4,gold);
+      rect(cx-6,y+23,3,4,gold);
+      rect(cx+4,y+23,3,4,gold);
+    }else{
+      // Colonel: paired pixel stars.
+      for(const sx of [x+9,x+22]){
+        rect(sx-1,y+7,3,17,gold);
+        rect(sx-5,y+12,11,4,gold);
+        rect(sx-3,y+17,7,4,gold);
+      }
+    }
+  }
   function drawMemorialScroll(){
-    // The remembrance ceremony covers the whole battlefield and the HUD.
-    // It is an original pixel-art parchment with rolled wood finials.
+    // An original parchment ceremony across the entire screen, unchanged art style.
+    const entries=memorialEntries();
     rect(0,0,W,WH,'#101a16');
     for(let i=0;i<18;i++){
       const x=(i*127+11)%W,y=(i*43+8)%WH;
       rect(x,y,2,3,i%3===0?'#344536':'#273a30');
     }
     const w=Math.min(W-34,530),left=(W-w)/2,right=left+w,center=W/2;
-    // The heavy shadow and patterned paper are drawn without external images.
     rect(left+5,22,w,245,'#080e0a');
     rect(left,21,w,240,'#86633c');
     const parchment=ctx.createLinearGradient(left,0,right,0);
@@ -1284,7 +1352,6 @@
       rect(right-18-(i%4),y+4,4,2,'#b29263');
     }
     stroke(left+14,32,w-28,218,'#aa8858');
-    // Wooden scroll rollers and curled parchment ends.
     for(const y of [12,256]){
       rect(left-7,y,w+14,11,'#4d3824');
       rect(left-7,y+2,w+14,3,'#9a7044');
@@ -1297,41 +1364,45 @@
     text('HEROES LOST IN ACTION',center,36,19,'#4e3925','center');
     text('✦',center+164,37,16,'#755438','center');
     const op=String(memorialOperation).padStart(2,'0');
-    text(memorialAutomatic?'AFTER OPERATION '+op+'  ·  '+memorialRecent.length+' FALLEN THIS MISSION':
+    text(memorialMissionOnly?'AFTER OPERATION '+op+'  ·  '+entries.length+' FALLEN THIS MISSION':
       'THE PERMANENT ROLL OF HONOUR',center,61,10,'#73543b','center');
     rect(left+33,83,w-66,1,'#9d7a54');
-    text('FINAL RANK',left+56,87,8,'#77583d');
-    text('NAME',left+185,87,8,'#77583d');
+    text('INSIGNIA / RANK',left+51,87,8,'#77583d');
+    text('NAME',left+190,87,8,'#77583d');
     text('MISSION',right-33,87,8,'#77583d','right');
     const area=memorialScrollArea();memorialWindow=area;
     ctx.save();ctx.beginPath();ctx.rect(area.x,area.y,area.w,area.h);ctx.clip();
-    if(!career.fallen.length){
-      text('NO HEROES LOST',center,119,17,'#5a4932','center');
-      text('MAY THEY ALL RETURN SAFELY',center,144,10,'#876849','center');
+    if(!entries.length){
+      text(memorialMissionOnly?'NO SOLDIERS LOST THIS MISSION':'NO HEROES LOST',
+        center,119,15,'#5a4932','center');
+      text(memorialMissionOnly?'ALL DEPLOYED PERSONNEL RETURNED':'MAY THEY ALL RETURN SAFELY',
+        center,144,10,'#876849','center');
     }else{
-      for(let i=0;i<career.fallen.length;i++){
-        const fallen=career.fallen[i],y=area.y+38+i*42-memorialOffset;
+      for(let i=0;i<entries.length;i++){
+        const fallen=entries[i],y=area.y+38+i*42-memorialOffset;
         if(y<area.y-42||y>area.y+area.h+10)continue;
-        const newLoss=memorialAutomatic&&memorialRecent.includes(fallen.id);
-        if(newLoss){rect(area.x+7,y-5,area.w-14,35,'#ddbb8199');}
-        text('†',area.x+8,y,15,newLoss?'#873d2d':'#9e7851');
-        text(rankName(fallen.rank),area.x+33,y,10,'#69452e');
-        text(fallen.name,area.x+160,y-2,13,newLoss?'#873d2d':'#433222');
+        if(memorialMissionOnly)rect(area.x+7,y-5,area.w-14,35,'#ddbb8199');
+        text('†',area.x+8,y,15,memorialMissionOnly?'#873d2d':'#9e7851');
+        drawRankInsignia(fallen.rank,area.x+31,y-5);
+        text(rankName(fallen.rank),area.x+68,y+1,9,'#69452e');
+        text(fallen.name,area.x+170,y-2,13,memorialMissionOnly?'#873d2d':'#433222');
         text(String(fallen.mission).padStart(2,'0'),area.x+area.w-17,y+1,10,'#72533a','right');
         text('IN SERVICE  ·  '+(fallen.missions||0)+' OPERATIONS COMPLETED',
-          area.x+34,y+16,8,'#91704e');
+          area.x+170,y+16,8,'#91704e');
       }
     }
     ctx.restore();
-    // Subtle top and bottom masks keep the scrolling text within the parchment.
     rect(left+24,211,w-48,1,'#a58456');
-    text(career.fallen.length+' '+(career.fallen.length===1?'HERO':'HEROES')+' REMEMBERED   ·   SWIPE TO SCROLL',
+    const footer=memorialMissionOnly?entries.length+' FALLEN THIS MISSION':
+      entries.length+' '+(entries.length===1?'HERO':'HEROES')+' REMEMBERED';
+    text(footer+(entries.length?'   ·   SWIPE TO SCROLL':''),
       center,216,9,'#76573a','center');
     memorialButton={x:center-116,y:234,w:232,h:25};
     rect(memorialButton.x,memorialButton.y,memorialButton.w,memorialButton.h,'#34452c');
     rect(memorialButton.x+2,memorialButton.y+2,memorialButton.w-4,memorialButton.h-4,'#4a6038');
     stroke(memorialButton.x,memorialButton.y,memorialButton.w,memorialButton.h,'#806541');
     text(memorialAutomatic?'HONOUR THE FALLEN  /  CONTINUE':
+      memorialMissionOnly?'RETURN TO REPORT':
       memorialReturn==='title'?'RETURN TO CAMP':'RETURN TO REPORT',
       center,memorialButton.y+7,10,'#f1e7bf','center');
   }
@@ -1430,7 +1501,7 @@
     const label=won?(career.nextMission<=2?'NEXT: '+operationName(career.nextMission):'RETURN TO CAMP'):'REDEPLOY RECRUITS';
     button(resultStart.x,resultStart.y,w,33,label,'next',true);
     resultAlt={x:x-w/2,y:239,w,h:29};
-    button(resultAlt.x,resultAlt.y,w,29,'LOST IN BATTLE  /  MEMORIAL','memorial',false);
+    button(resultAlt.x,resultAlt.y,w,29,'THIS MISSION  /  MEMORIAL','memorial',false);
   }
   function draw(){
     rect(0,0,W,WH,'#141c15');
@@ -1522,7 +1593,7 @@
     if(state==='paused'){if(inside(p,resultStart))state='playing';return;}
     if(state==='won'||state==='lost'){
       if(inside(p,resultStart)){if(state==='won'&&career.nextMission>2)state='title';else resetMission();}
-      else if(inside(p,resultAlt))showArchive('memorial');
+      else if(inside(p,resultAlt))enterMemorial(false,state,true);
       return;
     }
     if(p.x<HUD){
@@ -1632,7 +1703,7 @@
   let last=performance.now();
   function tick(t){const dt=clamp((t-last)/1000,0,.04);last=t;timeNow=t;
     if((state==='honours'||state==='memorial')&&!memorialFinger&&
-       t>memorialHoldUntil&&career.fallen.length){
+       t>memorialHoldUntil&&memorialEntries().length){
       memorialOffset+=dt*14;
       if(memorialOffset>memorialMaximum())memorialOffset=-48;
     }
@@ -1684,6 +1755,7 @@
     get afterAction(){return JSON.parse(JSON.stringify(afterAction));},
     get ceremony(){return {state,automatic:memorialAutomatic,returnTo:memorialReturn,
       offset:memorialOffset,operation:memorialOperation,recent:[...memorialRecent],
+      missionOnly:memorialMissionOnly,displayed:memorialEntries().map(f=>({id:f.id,mission:f.mission,rank:f.rank})),
       pending:career.pendingHonours||null};},
     get squads(){return {split,selected,alpha:soldiers.filter(s=>s.alive&&s.team==='A').map(s=>s.name),bravo:soldiers.filter(s=>s.alive&&s.team==='B').map(s=>s.name)};},
     get enemyAI(){return enemies.map(e=>({id:e.id,alive:e.alive,x:e.x,y:e.y,tactic:e.tactic,
