@@ -8,6 +8,7 @@ on:
       - 'index.html'
       - 'ww2-campaign.html'
       - 'ww2-campaign-data.js'
+      - 'norway-missions.js'
       - 'tests/**'
       - '.github/workflows/android-debug-apk.yml'
   workflow_dispatch:
@@ -28,6 +29,7 @@ jobs:
           cmp index.html android/app/src/main/assets/index.html
           cmp ww2-campaign.html android/app/src/main/assets/ww2-campaign.html
           cmp ww2-campaign-data.js android/app/src/main/assets/ww2-campaign-data.js
+          cmp norway-missions.js android/app/src/main/assets/norway-missions.js
           grep -q 'GREEN_DAWN_TEST' android/app/src/main/assets/index.html
           grep -q 'JUNGLE ASSAULT' android/app/src/main/assets/index.html
       - name: Test campaign and mission progression
@@ -101,13 +103,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Campaign-v0.13-debug.apk
-          if gh release view v0.13.0 >/dev/null 2>&1; then
-            gh release upload v0.13.0 GreenDawn-Campaign-v0.13-debug.apk --clobber
+          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Campaign-v0.14-debug.apk
+          if gh release view v0.14.0 >/dev/null 2>&1; then
+            gh release upload v0.14.0 GreenDawn-Campaign-v0.14-debug.apk --clobber
           else
-            gh release create v0.13.0 GreenDawn-Campaign-v0.13-debug.apk \
+            gh release create v0.14.0 GreenDawn-Campaign-v0.14-debug.apk \
               --target "$GITHUB_SHA" \
-              --title "Green Dawn v0.13.0 — Android test build" \
-              --notes "Green Dawn v0.13 introduces the WWII Road to Berlin campaign alongside the original 3-level jungle campaign. A complete offline battle-theatre map now lists all 100 planned missions in 17 regions (16 historical campaigns x 6 missions plus 4 fictional Berlin operations). Mission 001 Cold Landing in Norway is playable with winter pixel art, pines, icy fjord, a coastal gun and a secure-the-landing-zone objective. Other levels remain locked until built. WWII soldiers, memorials and backups use separate storage; existing jungle saves remain unchanged. Android includes all map data offline and 14 automated checks. Optional stable signing still requires GitHub secrets; do not uninstall an older build if its local save must be kept." \
+              --title "Green Dawn v0.14.0 — Android test build" \
+              --notes "Green Dawn v0.14 finishes the full six-mission NORWAY 1940 chapter. New playable: 002 Mountain Patrol with three sequential ridge captures, 003 The Supply Route with a moving and damageable ammunition cart plus ambushes, 004 Guns Above the Fjord with two distinct artillery positions, 005 Narvik Harbour with signal sabotage and sailor rescue, and 006 Last Ships from Norway: three defences, a 35-second pier defence under enemy counterattacks, then boarding the evacuation ship. Distinct frozen mountain, blizzard, fjord cliff, harbour and siege maps with original pixel art. All six levels auto-unlock in order with permanent soldier promotions, casualties, mission-only ceremony and no replay. Prior v0.13 Norway 001 saves are kept via the same WWII save key; jungle campaign remains separate and unchanged. Remaining 007-100 levels stay locked. Automated 24-test regression suite checks mission completion, backups and preservation. Note: debug APK signing is temporary unless private GitHub signing secrets are configured, so uninstalling the previous app erases its local saves." \
               --prerelease
           fi

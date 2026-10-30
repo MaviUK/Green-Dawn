@@ -13,6 +13,10 @@ const bundled = fs.readFileSync(path.join(__dirname,'../android/app/src/main/ass
 assert.equal(html,bundled,'browser and Android game assets must remain identical');
 const scriptTag = /<script>([\s\S]*?)<\/script>/.exec(html);
 assert.ok(scriptTag,'game script must exist');
+const norwayJs=fs.readFileSync(path.join(__dirname,'../norway-missions.js'),'utf8');
+const norwayBundled=fs.readFileSync(path.join(__dirname,'../android/app/src/main/assets/norway-missions.js'),'utf8');
+assert.equal(norwayJs,norwayBundled,'Norway missions must be bundled identically for Android');
+assert.ok(html.includes('<script src="norway-missions.js"></script>'));
 
 function saveAfter(cleared=2){
   return {
@@ -76,7 +80,16 @@ function boot(save,ww2=false){
     '    confirmBackup(){confirmBackupRestore();},',
     '    cancelBackup(){pendingBackup=null;openBackup();},',
     '    get backupStatus(){return backupStatus;},',
-    '    get backupReady(){return !!pendingBackup;}',
+    '    get backupReady(){return !!pendingBackup;},',
+    '    clearEnemies(){for(const e of enemies)e.alive=false;},',
+    '    moveFirst(x,y){const s=soldiers.find(s=>s.alive);if(s){s.x=x;s.y=y;s.path=[];}},',
+    '    moveEveryone(x,y){soldiers.forEach((s,i)=>{if(s.alive){s.x=x+i*8;s.y=y+i*7;s.path=[];}});}',
+    '    destroyTarget(i=0){const target=norwayTargets[i];if(!target)throw Error("No target");target.hp=0;checkBunker(target);},',
+    '    hurtConvoy(amount){if(norwayConvoy)norwayConvoy.health=Math.max(0,norwayConvoy.health-amount);},',
+    '    cartToEnd(){if(norwayConvoy)norwayConvoy.index=norwayConvoy.waypoints.length;},',
+    '    step(dt=.016){update(dt);},',
+    '    drawFrame(){draw();},',
+    '    get failure(){return norwayFailure;}',
     '  };'
   ].join('\n');
   const marker='  // Expose a tiny read-only test surface to catch playability regressions.';
@@ -87,6 +100,7 @@ function boot(save,ww2=false){
     localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,val)=>storage.set(key,String(val))},
     performance:{now:()=>0},requestAnimationFrame(){},console
   };
+  vm.runInNewContext(norwayJs,sandbox,{timeout:10000,filename:'norway-missions.js'});
   vm.runInNewContext(script,sandbox,{timeout:20000,filename:'green-dawn-game.js'});
   return {api:window.GREEN_DAWN_TEST,qa:window.__GD_QA,storage,native,window};
 }
@@ -185,7 +199,7 @@ test('Samsung backup exports a complete versioned career and memorial file',()=>
   const file=JSON.parse(native.exports[0]);
   assert.equal(file.format,'GREEN_DAWN_SAVE');
   assert.equal(file.version,1);
-  assert.equal(file.gameVersion,'0.13.0');
+  assert.equal(file.gameVersion,'0.14.0');
   assert.equal(file.career.active.length,3);
   assert.equal(file.career.fallen.length,1);
   assert.equal(file.career.victories.length,2);
@@ -285,7 +299,7 @@ test('100 WWII operations are grouped into 16 six-mission historical campaigns p
   const data=sandbox.window.GREEN_DAWN_WW2;
   assert.equal(data.campaigns.length,17);
   assert.equal(data.missions.length,100);
-  assert.equal(data.available,1);
+  assert.equal(data.available,6);
   assert.equal(data.campaigns[0].country,'Norway');
   assert.equal(data.campaigns[15].last,96);
   assert.equal(data.campaigns[16].first,97);
@@ -301,7 +315,7 @@ test('WWII career is independent of the completed jungle campaign and starts in 
   const {api,qa,storage}=boot(null,true);
   assert.equal(api.status.campaign,'ww2');
   assert.equal(api.status.plannedMissions,100);
-  assert.equal(api.status.availableMissions,1);
+  assert.equal(api.status.availableMissions,6);
   assert.equal(api.status.nextMission,1);
   assert.equal(api.career.active[0].name,'JACK');
   assert.equal(api.career.active[1].name,'TOM');
@@ -357,4 +371,185 @@ test('WWII memorial still shows only soldiers killed during the current operatio
   qa.leave();qa.camp();api.showMemorial();
   assert.equal(api.ceremony.missionOnly,false);
   assert.equal(api.ceremony.displayed.length,1);
+});
+
+
+function norwaySaveAfter(cleared,casualtyMission4=0){
+  return {
+    nextMission:cleared+1,nextId:9,
+    active:[
+      {id:'r0',name:'JACK',rank:Math.min(cleared,10),missions:cleared,joinedMission:1,order:0},
+      {id:'r1',name:'TOM',rank:Math.min(cleared,10),missions:cleared,joinedMission:1,order:1},
+      {id:'r2',name:'ALF',rank:Math.min(cleared,10),missions:cleared,joinedMission:1,order:2},
+      {id:'r3',name:'BERT',rank:0,missions:0,joinedMission:2,order:3}
+    ],
+    fallen:[],
+    victories:Array.from({length:cleared},(_,i)=>({
+      mission:i+1,score:950+i*20,survivors:3,casualties:i===3?casualtyMission4:0
+    })),
+    bestScore:1600
+  };
+}
+
+test('A v0.13 Norway Level 001 save unlocks Level 002 without resetting soldiers',()=>{
+  const imported=norwaySaveAfter(1);
+  const {api,storage}=boot(imported,true);
+  assert.equal(api.status.nextMission,2);
+  assert.equal(api.career.active[0].name,'JACK');
+  assert.equal(api.career.active[0].rank,1);
+  api.start();
+  assert.equal(api.status.mission,2);
+  assert.equal(api.norway.kind,'ridge');
+  assert.equal(api.status.availableMissions,6);
+  assert.equal(JSON.parse(storage.get('green-dawn-ww2-campaign-v1')).victories.length,1);
+});
+
+test('All five new Norway missions have unique objectives and render on Android canvas',()=>{
+  for(let operation=2;operation<=6;operation++){
+    const {api,qa}=boot(norwaySaveAfter(operation-1),true);
+    api.start();
+    assert.equal(api.status.mission,operation);
+    assert.equal(api.norway.operation,operation);
+    assert.ok(api.norway.objective?.label);
+    assert.ok(api.path(590,330,658,330).length>0,'bridge must be passable, level '+operation);
+    assert.doesNotThrow(()=>qa.drawFrame(),'level '+operation+' should paint without errors');
+  }
+});
+
+test('Mission 002 captures three ridge checkpoints in order after clearing enemy guards',()=>{
+  const {api,qa}=boot(norwaySaveAfter(1),true);
+  api.start();
+  const first=api.norway.checkpoints[0];
+  qa.moveFirst(first.x,first.y);
+  qa.step();
+  assert.equal(api.status.state,'playing');
+  qa.clearEnemies();
+  for(let i=0;i<3;i++){
+    const cp=api.norway.checkpoints[i];
+    qa.moveFirst(cp.x,cp.y);
+    qa.step();
+    assert.equal(api.norway.clearedRidges,i+1);
+    if(i<2)assert.equal(api.status.state,'playing');
+  }
+  assert.equal(api.status.state,'honours');
+  assert.equal(api.status.nextMission,3);
+});
+
+test('Mission 003 cart does not move unattended, escorts advance it and can lose it',()=>{
+  const {api,qa}=boot(norwaySaveAfter(2),true);
+  api.start();qa.clearEnemies();
+  const first=api.norway.convoy;
+  assert.equal(first.hp,100);
+  qa.moveEveryone(900,570);qa.step(.3);
+  assert.equal(api.norway.convoy.x,first.x);
+  qa.moveEveryone(first.x,first.y);qa.step(.3);
+  assert.ok(api.norway.convoy.x>first.x);
+  assert.equal(api.status.state,'playing');
+  qa.cartToEnd();qa.clearEnemies();qa.step();
+  assert.equal(api.status.state,'honours');
+  assert.equal(api.status.nextMission,4);
+
+  const fail=boot(norwaySaveAfter(2),true);
+  fail.api.start();fail.qa.hurtConvoy(100);fail.qa.step();
+  assert.equal(fail.api.status.state,'honours');
+  assert.match(fail.qa.failure,/SUPPLY CART DESTROYED/);
+  assert.equal(fail.api.career.victories.length,2);
+  fail.qa.leave();fail.qa.camp();fail.api.start();
+  assert.equal(fail.api.status.mission,3);
+  assert.equal(fail.api.norway.convoy.hp,100);
+});
+
+test('Mission 004 requires both coastal guns destroyed before the extraction point counts',()=>{
+  const {api,qa}=boot(norwaySaveAfter(3),true);
+  api.start();
+  assert.equal(api.norway.targets.length,2);
+  qa.destroyTarget(0);qa.clearEnemies();
+  qa.moveFirst(api.status.extraction.x,api.status.extraction.y);qa.step();
+  assert.equal(api.status.state,'playing');
+  qa.destroyTarget(1);qa.step();
+  assert.equal(api.status.state,'honours');
+  assert.equal(api.status.nextMission,5);
+});
+
+test('Mission 005 requires sabotage, sailor rescue and return to harbour',()=>{
+  const {api,qa}=boot(norwaySaveAfter(4),true);
+  api.start();qa.destroyTarget(0);qa.clearEnemies();
+  qa.moveFirst(api.status.extraction.x,api.status.extraction.y);qa.step();
+  assert.equal(api.status.state,'playing');
+  qa.moveFirst(278,234);qa.step();
+  assert.equal(api.norway.rescued,true);
+  qa.moveFirst(api.status.extraction.x,api.status.extraction.y);qa.step();
+  assert.equal(api.status.state,'honours');
+  assert.equal(api.status.nextMission,6);
+});
+
+test('Mission 006 demands three targets, 35-second pier defence and final ship boarding',()=>{
+  const {api,qa,storage}=boot(norwaySaveAfter(5),true);
+  api.start();
+  assert.equal(api.status.grenades,5,'rescued supplies carry into finale');
+  assert.equal(api.norway.targets.length,3);
+  qa.destroyTarget(0);qa.destroyTarget(1);
+  assert.equal(api.norway.holding,false);
+  qa.moveFirst(api.status.extraction.x,api.status.extraction.y);qa.step();
+  assert.equal(api.status.state,'playing');
+  qa.destroyTarget(2);
+  assert.equal(api.norway.holding,true);
+  assert.equal(api.norway.holdRemaining,35);
+  assert.equal(api.norway.waves,1);
+  qa.clearEnemies();qa.moveFirst(275,137);qa.step(1);
+  const held=api.norway.holdRemaining;
+  assert.ok(held<35);
+  qa.moveEveryone(900,560);qa.clearEnemies();qa.step(1);
+  assert.equal(api.norway.holdRemaining,held,'hold pauses if squad retreats');
+  qa.moveEveryone(275,137);
+  for(let i=0;i<36&&api.norway.holdRemaining>0;i++){qa.clearEnemies();qa.step(1);}
+  assert.equal(api.norway.holdRemaining,0);
+  assert.ok(api.norway.waves>=2);
+  assert.equal(api.status.state,'playing');
+  qa.moveFirst(api.status.extraction.x,api.status.extraction.y);qa.clearEnemies();qa.step();
+  assert.equal(api.status.state,'honours');
+  assert.equal(api.status.nextMission,7);
+  assert.equal(api.career.victories.length,6);
+  qa.leave();qa.camp();api.start();
+  assert.equal(api.status.state,'title','completed Norway cannot be replayed');
+  assert.equal(JSON.parse(storage.get('green-dawn-ww2-campaign-v1')).nextMission,7);
+});
+
+test('Saving every soldier in mission 004 reduces German waves in the Norway finale',()=>{
+  const saved=boot(norwaySaveAfter(5,0),true);
+  saved.api.start();assert.equal(saved.api.norway.waveLimit,3);
+  const costly=boot(norwaySaveAfter(5,1),true);
+  costly.api.start();assert.equal(costly.api.norway.waveLimit,4);
+});
+
+test('Norway medal ceremony contains only the current fallen and leaves jungle save intact',()=>{
+  const {api,qa,storage}=boot(norwaySaveAfter(4),true);
+  const jungleBefore=storage.get('green-dawn-campaign-v1');
+  api.start();qa.killFirst();qa.destroyTarget(0);qa.clearEnemies();
+  qa.moveFirst(278,234);qa.step();
+  qa.moveFirst(api.status.extraction.x,api.status.extraction.y);qa.step();
+  assert.equal(api.status.state,'honours');
+  assert.equal(api.ceremony.missionOnly,true);
+  assert.equal(api.ceremony.displayed.length,1);
+  assert.equal(api.ceremony.displayed[0].mission,5);
+  qa.leave();qa.camp();api.showMemorial();
+  assert.equal(api.ceremony.missionOnly,false);
+  assert.equal(api.ceremony.displayed.length,1);
+  assert.equal(storage.get('green-dawn-campaign-v1'),jungleBefore);
+});
+
+test('Norway six-mission backup restores next level 007 locked without rewriting ranks',()=>{
+  const past=norwaySaveAfter(6);
+  const {qa,api,storage,window}=boot(norwaySaveAfter(1),true);
+  qa.openBackup();
+  qa.receiveBackup(JSON.stringify({format:'GREEN_DAWN_WW2_SAVE',version:1,career:past,settings:{audioOn:true}}));
+  assert.equal(api.status.state,'backup-confirm');
+  qa.confirmBackup();
+  assert.equal(window.reloadCount,1);
+  const restored=JSON.parse(storage.get('green-dawn-ww2-campaign-v1'));
+  assert.equal(restored.victories.length,6);
+  const fresh=boot(restored,true);
+  assert.equal(fresh.api.status.nextMission,7);
+  fresh.api.start();
+  assert.equal(fresh.api.status.state,'title');
 });

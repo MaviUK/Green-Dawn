@@ -30,9 +30,10 @@
     <canvas id="game" tabindex="0" aria-label="Green Dawn jungle assault game. Landscape game. Tap to move, hold to fire, drag to aim. Tap SPLIT to make Alpha and Bravo groups; select either group or a soldier, hold a soldier name to transfer, tap JOIN to reunite."></canvas>
     <div id="orientation" role="status"><div class="icon">↻</div><h1>ROTATE TO DEPLOY</h1><p>Turn your phone sideways for the full 16-bit battlefield.</p></div>
   </main>
+  <script src="norway-missions.js"></script>
   <script>
 /*
-  GREEN DAWN v0.13 — JUNGLE + WWII CAMPAIGNS
+  GREEN DAWN v0.14 — COMPLETE SIX-MISSION NORWAY CAMPAIGN
   Original game, procedural pixel art, original gameplay code and synthesized SFX.
   No art/music/code from Cannon Fodder or any other game is used.
 */
@@ -62,7 +63,9 @@
   let timeNow=0,mouseRight=false,hasAudio=false,audioOn=true,audioCtx=null,objectiveArrow=0;
   let playerShots=0,reinforcementsSent=false;
   const IS_WW2=/(?:^|[?&])campaign=ww2(?:&|$)/.test(window.location.search||'');
-  const CAMPAIGN_MISSIONS=IS_WW2?1:3;
+  const NORWAY=IS_WW2?window.GREEN_DAWN_NORWAY:null;
+  if(IS_WW2&&(!NORWAY||NORWAY.missions.length!==6))throw Error('Norway mission data missing');
+  const CAMPAIGN_MISSIONS=IS_WW2?6:3;
   const CAMPAIGN_PLAN=IS_WW2?100:3;
   // Separate soldier careers: existing jungle saves are untouched.
   const CAREER_KEY=IS_WW2?'green-dawn-ww2-campaign-v1':'green-dawn-campaign-v1';
@@ -87,8 +90,12 @@
   let memorialOffset=-48,memorialFinger=null,memorialHoldUntil=0;
   let memorialReturn='title',memorialOperation=1,memorialRecent=[],memorialAutomatic=false,memorialMissionOnly=false;
   let memorialButton={x:0,y:0,w:0,h:0},memorialWindow={x:0,y:0,w:0,h:0};
-  const operationName=n=>IS_WW2?(n===1?'COLD LANDING':'AWAITING ORDERS'):
+  const operationName=n=>IS_WW2?(NORWAY.byNumber(n)?.title.toUpperCase()||'AWAITING ORDERS'):
     n===1?'JUNGLE ASSAULT':n===2?'DEPOT RAID':n===3?'RADAR BLACKOUT':'AWAITING ORDERS';
+  // Unrelated jungle saves, missions and assets continue on their original paths.
+  let norwayLayout=null,norwayTargets=[],norwayCheckpoint=0,norwayConvoy=null;
+  let norwayRescued=false,norwayHold=0,norwayHoldStarted=false,norwayWaves=0;
+  let norwayWaveLimit=4,norwayFailure='',norwayEvent='';
   // A small settings key that survives a native WebView restart.
   try {audioOn=localStorage.getItem('green-dawn-audio-v2')!=='off';}catch(_){}
   let seed=1;
@@ -230,9 +237,90 @@
     return best;
   }
 
+  function prepareNorwayMission(){
+    if(!IS_WW2)return;
+    norwayLayout=NORWAY.byNumber(missionIndex)||null;
+    const specs=norwayLayout?.targets||[];
+    norwayTargets=specs.map(([x,y,w,h,hp,label],i)=>({
+      x,y,w,h,hp,maxHp:hp,dead:false,
+      kind:missionIndex===5?'signals':'coastal',label,id:i
+    }));
+    if(missionIndex===1){
+      bunker={x:871,y:119,w:67,h:53,hp:8,maxHp:8,dead:false,kind:'coastal'};
+      norwayTargets=[bunker];
+    }else{
+      bunker=norwayTargets[0]||{x:-120,y:-120,w:1,h:1,hp:0,maxHp:0,dead:true,kind:'none'};
+    }
+    const loc=norwayLayout?.extraction;
+    extraction=loc?{x:loc[0],y:loc[1],r:26}:{x:797,y:219,r:27};
+    norwayCheckpoint=0;norwayRescued=false;norwayHold=0;
+    norwayHoldStarted=false;norwayWaves=0;norwayFailure='';norwayEvent='';
+    norwayWaveLimit=career.victories.some(v=>v.mission===4&&v.casualties===0)?3:4;
+    norwayConvoy=missionIndex===3?{
+      x:norwayLayout.convoy[0][0],y:norwayLayout.convoy[0][1],
+      waypoints:norwayLayout.convoy.map(p=>({x:p[0],y:p[1]})),
+      index:1,health:100,maxHealth:100,ambushes:0,delivered:false
+    }:null;
+  }
+  function drawNorwayTerrain(g){
+    // All five maps have distinct landmarks yet retain familiar Amiga-era pixels.
+    if(missionIndex===2||missionIndex===3){
+      // Wind-cut cliffs, snow slabs, and mountain shadows around the pass.
+      for(let i=0;i<135;i++){
+        const x=(rng()*MW)|0,y=(rng()*MH)|0,w=9+(rng()*36)|0;
+        if(lineDistance(x,y,pathLine)<60||inRiver(x,y))continue;
+        g.fillStyle=i%3===0?'#e8eded':i%3===1?'#617b86':'#718891';
+        g.fillRect(x,y,w,3+i%6);
+        g.fillStyle='#d0e0df';g.fillRect(x+4,y-3,Math.max(3,w-10),2);
+      }
+      if(missionIndex===3){
+        for(let i=0;i<120;i++){
+          const x=(rng()*MW)|0,y=(rng()*MH)|0;
+          g.fillStyle='#e9f1ec';g.fillRect(x,y,3+(i%5),1);
+        }
+      }
+    }
+    if(missionIndex===4){
+      // North fjord: sea, distant rocks and concrete artillery positions.
+      for(let x=8;x<MW-9;x+=13){
+        const coast=36+Math.sin(x*.022)*8;
+        g.fillStyle='#315961';g.fillRect(x,7,13,Math.max(2,coast-7));
+        g.fillStyle='#9dc2bb';g.fillRect(x,coast,13,2);
+        if(x%4)g.fillStyle='#83a8a7',g.fillRect(x+2,14,5,1);
+      }
+    }
+    if(missionIndex===5||missionIndex===6){
+      // Narvik shoreline and piers; shallow water lies off the combat route.
+      g.fillStyle='#3c646a';g.fillRect(6,6,217,77);
+      for(let i=0;i<15;i++){
+        g.fillStyle=i%2?'#638e96':'#87ada9';
+        g.fillRect(13+i*14,22+i%4*10,16,2);
+      }
+      g.fillStyle='#536c69';g.fillRect(37,75,132,22);
+      for(let i=0;i<13;i++){
+        g.fillStyle=i%2?'#b3ad94':'#817e68';g.fillRect(42+i*10,77,9,19);
+      }
+      g.fillStyle='#3d5152';g.fillRect(42,99,10,31);g.fillRect(151,99,10,31);
+      // Corrugated storehouses, mooring posts and coiled ropes.
+      for(const [x,y] of [[31,185],[335,65],[679,185]]){
+        if(lineDistance(x,y,pathLine)<48)continue;
+        g.fillStyle='#556a66';g.fillRect(x,y,45,23);
+        g.fillStyle='#8ca29d';g.fillRect(x+3,y+3,39,3);
+        g.fillStyle='#a9b7ad';g.fillRect(x+7,y+9,5,12);
+      }
+      if(missionIndex===6){
+        for(let i=0;i<30;i++){
+          const x=(i*79+47)%MW,y=(i*113+29)%MH;
+          if(lineDistance(x,y,pathLine)<45)continue;
+          g.fillStyle=i%2?'#596567':'#a0aca5';g.fillRect(x,y,8+i%7,4+i%5);
+        }
+      }
+    }
+  }
   function generateTerrain(){
-    seed=IS_WW2?19400415:missionIndex===3?942731:missionIndex===2?684291:378194;
-    pathLine=IS_WW2?[
+    seed=IS_WW2?(norwayLayout?.seed||19400415):missionIndex===3?942731:missionIndex===2?684291:378194;
+    pathLine=IS_WW2&&norwayLayout?.route?norwayLayout.route.map(p=>({x:p[0],y:p[1]})):
+      IS_WW2?[
       {x:101,y:570},{x:224,y:530},{x:355,y:442},{x:499,y:365},
       {x:601,y:330},{x:716,y:283},{x:797,y:220},{x:884,y:145}
     ]:missionIndex===3?[
@@ -247,10 +335,20 @@
     trees=[];rocks=[];
     terrain=document.createElement('canvas');terrain.width=MW;terrain.height=MH;
     const g=terrain.getContext('2d');g.imageSmoothingEnabled=false;
-    g.fillStyle=IS_WW2?'#a8b8b9':missionIndex===3?'#405e47':missionIndex===2?'#536b43':'#60793c';
+    const norwayGround=['#a8b8b9','#a3b0b4','#c2cfd3','#7c999f','#839e9b','#90958e'];
+    g.fillStyle=IS_WW2?norwayGround[missionIndex-1]:
+      missionIndex===3?'#405e47':missionIndex===2?'#536b43':'#60793c';
     g.fillRect(0,0,MW,MH);
-    // Norwegian winter terrain: cold stone, wind-blown drifts and fir trees.
-    const greens=IS_WW2?['#b5c5c7','#d3dada','#90a5a7','#839997','#c7d3d1','#779098','#dce1df']:
+    // Each Norwegian assignment gets its own snowfall, stone and harbour palette.
+    const norwaySnow=[
+      ['#b5c5c7','#d3dada','#90a5a7','#839997','#c7d3d1','#779098','#dce1df'],
+      ['#9daeb4','#c9d3d0','#aabec3','#84959b','#d8ddda','#728c99','#e2e6e0'],
+      ['#b8c9ce','#dce5e7','#8fa7b4','#a5bdc7','#eef1ef','#788f9e','#cedce1'],
+      ['#708d92','#9db6b3','#587781','#acc0bc','#84969b','#d0dad1','#5c7a7c'],
+      ['#819a95','#bdc8bd','#6e878b','#aabbb8','#7e8d83','#d6dcd2','#536c70'],
+      ['#88908e','#bfc6bf','#6c7b7d','#a0acad','#6f8484','#d2d8d1','#536c6d']
+    ];
+    const greens=IS_WW2?norwaySnow[missionIndex-1]:
       missionIndex===3?['#375841','#34523d','#4d6b4e','#395c48','#62815b','#294a39','#75916b']:
       missionIndex===2?['#536d44','#435e40','#677b47','#5b7341','#71824b','#3d5b39','#829253']:
       ['#6b843d','#546d35','#5b7539','#64813d','#779248','#4b682f','#819b50'];
@@ -263,8 +361,8 @@
       }
     }
     if(IS_WW2){
-      // Decorative distant cliffs and low coastal rock shadows.
-      for(let i=0;i<140;i++){
+      // Distant ledges and frozen rock, always outside the traversable track.
+      for(let i=0;i<(missionIndex===3?235:140);i++){
         const x=(rng()*MW)|0,y=(rng()*MH)|0,span=8+(rng()*27)|0;
         if(lineDistance(x,y,pathLine)<57||Math.abs(x-riverX(y))<51)continue;
         g.fillStyle=i%3===0?'#dce6e1':i%3===1?'#728b91':'#849da1';
@@ -278,6 +376,7 @@
         g.fillStyle='#53666b';g.fillRect(21+i*22,611,5,18);
       }
     }
+    if(IS_WW2&&missionIndex>1)drawNorwayTerrain(g);
     // Terrain-aware dirt track: frozen gravel replaces brown jungle dust.
     g.lineCap='round';g.lineJoin='round';
     g.strokeStyle=IS_WW2?'#6f8181':'#394f2d';g.lineWidth=43;drawRoute(g,pathLine);
@@ -323,14 +422,21 @@
     for(let i=0;i<7;i++){g.fillStyle='#4a4430';g.fillRect(bx-56+i*18,309,3,5);g.fillRect(bx-56+i*18,347,3,5);}
     // Border forest and pockets of trees. Keep vital route & bridge navigable.
     let attempts=0;
-    while(trees.length<355&&attempts<3500){
+    const norwayTrees=[355,270,235,252,220,205];
+    const treesNeeded=IS_WW2?norwayTrees[missionIndex-1]:355;
+    while(trees.length<treesNeeded&&attempts<3500){
       attempts++;
       const x=rnd(10,MW-10),y=rnd(10,MH-10),r=rnd(10,19);
       if(lineDistance(x,y,pathLine)<42+r*.4) continue;
       if(Math.abs(x-riverX(y))<44+r) continue;
       if(IS_WW2){
-        if(dist(x,y,101,576)<84||dist(x,y,885,143)<91||
-           dist(x,y,extraction.x,extraction.y)<73)continue;
+        const safe=[[101,576],[885,143],[extraction.x,extraction.y],
+          ...(norwayLayout?.insertion||[]),
+          ...(norwayLayout?.targets||[]).map(b=>[b[0]+b[2]/2,b[1]+b[3]/2]),
+          ...(norwayLayout?.checkpoints||[]).map(p=>[p[0],p[1]]),
+          ...(norwayLayout?.rescue?[norwayLayout.rescue]:[]),
+          ...(norwayLayout?.hold?[norwayLayout.hold]:[])];
+        if(safe.some(([sx,sy])=>dist(x,y,sx,sy)<66+r*.5))continue;
       }else if(missionIndex===3){
         if(dist(x,y,114,576)<85||dist(x,y,861,436)<90||dist(x,y,extraction.x,extraction.y)<70)continue;
       }else if(missionIndex===2){
@@ -358,7 +464,7 @@
       g.beginPath();g.moveTo(x-8,y);g.lineTo(x+7,y+10);g.stroke();
     }
     // Darken world boundaries, visually separate the playable area.
-    g.fillStyle='#233526';g.fillRect(0,0,MW,6);g.fillRect(0,MH-6,MW,6);
+    g.fillStyle=IS_WW2?'#40595c':'#233526';g.fillRect(0,0,MW,6);g.fillRect(0,MH-6,MW,6);
     g.fillRect(0,0,6,MH);g.fillRect(MW-6,0,6,MH);
     buildNav();renderedMission=missionIndex;
   }
@@ -420,7 +526,12 @@
   function blocked(x,y,margin=4){
     if(x<12||y<12||x>MW-13||y>MH-13) return true;
     if(inRiver(x,y)&&!onBridge(x,y))return true;
-    if(missionIndex===3){
+    if(IS_WW2){
+      for(const b of norwayTargets){
+        if(x>b.x-margin&&x<b.x+b.w+margin&&y>b.y-margin&&y<b.y+b.h+margin)
+          return true;
+      }
+    }else if(missionIndex===3){
       if(x>826-margin&&x<898+margin&&y>407-margin&&y<465+margin)return true;
     }else if(missionIndex===2){
       if(x>165-margin&&x<246+margin&&y>150-margin&&y<215+margin)return true;
@@ -525,25 +636,27 @@
     // Operations already cleared can never be restarted or selected.
     if(career.nextMission>CAMPAIGN_MISSIONS){state='title';return;}
     missionIndex=career.nextMission;
-    extraction=IS_WW2?{x:797,y:219,r:27}:
-      missionIndex===3?{x:913,y:157,r:27}:{x:319,y:91,r:25};
+    if(IS_WW2)prepareNorwayMission();
+    else extraction=missionIndex===3?{x:913,y:157,r:27}:{x:319,y:91,r:25};
     if(renderedMission!==missionIndex)generateTerrain();
     state='playing';mode='move';selected=-1;split=false;clock=0;started=performance.now()/1000;
     cancelGesture();shotClock=0;score=0;kills=0;grenades=3;freeze=0;playerShots=0;
+    if(IS_WW2&&missionIndex===4&&career.victories.some(v=>v.mission===3))grenades=4;
+    if(IS_WW2&&missionIndex===6&&career.victories.some(v=>v.mission===5))grenades=5;
     reinforcementsSent=false;
     missionLossStart=career.fallen.length;
     afterAction={mission:missionIndex,fallen:[],promotions:[],newRecruits:[],score:0};
-    const insertion=IS_WW2?[[101,572],[87,586],[115,592]]:
+    const insertion=IS_WW2?(norwayLayout?.insertion||[[101,572],[87,586],[115,592]]):
       missionIndex===3?[[114,575],[96,591],[130,589]]:
       missionIndex===2?[[901,566],[887,580],[915,586]]:[[111,573],[95,592],[120,604]];
     const people=ensureDeployment();
     soldiers=people.map((m,i)=>({name:m.name,careerId:m.id,x:insertion[i][0],y:insertion[i][1],
       alive:true,rank:m.rank,fire:i*.05,path:[],face:-.6,id:i,team:'A',
       color:['#4f803d','#637e3d','#779447'][i]}));
-    const posts=IS_WW2?[
+    const posts=IS_WW2?(norwayLayout?.posts||[
       [278,503],[392,418],[485,365],[556,334],[705,283],
       [747,250],[830,205],[883,239],[915,197]
-    ]:missionIndex===3?[
+    ]):missionIndex===3?[
       [294,505],[415,410],[527,359],[668,333],[746,394],
       [793,494],[919,489],[929,359],[893,281],[872,196],[752,521],[840,544]
     ]:missionIndex===2?
@@ -554,15 +667,20 @@
       return spawnEnemy(point?point.x*CELL+CELL/2:p[0],
         point?point.y*CELL+CELL/2:p[1],i);
     });
-    bunker=IS_WW2?{x:871,y:119,w:67,h:53,hp:8,maxHp:8,dead:false,kind:'coastal'}:
-      missionIndex===3?{x:826,y:407,w:72,h:58,hp:12,maxHp:12,dead:false,kind:'radar'}:
+    if(!IS_WW2)bunker=missionIndex===3?{x:826,y:407,w:72,h:58,hp:12,maxHp:12,dead:false,kind:'radar'}:
       missionIndex===2?{x:174,y:157,w:67,h:53,hp:10,maxHp:10,dead:false,kind:'depot'}:
       {x:871,y:119,w:67,h:53,hp:8,maxHp:8,dead:false,kind:'radio'};
-    ammo=IS_WW2?{x:463,y:378,taken:false}:
+    ammo=IS_WW2?(norwayLayout?.ammo?
+      {x:norwayLayout.ammo[0],y:norwayLayout.ammo[1],taken:false}:{x:463,y:378,taken:false}):
       missionIndex===3?{x:517,y:371,taken:false}:
       missionIndex===2?{x:746,y:398,taken:false}:{x:461,y:371,taken:false};
     bullets=[];bombs=[];particles=[];decals=[];gunEffects=[];fallenBodies=[];
-    message=IS_WW2?'SILENCE COASTAL GUN  /  SECURE THE LANDING ZONE':
+    message=IS_WW2?(missionIndex===1?'SILENCE COASTAL GUN / SECURE BEACH':
+      missionIndex===2?'CLEAR THREE RIDGE POSTS':
+      missionIndex===3?'ESCORT THE AMMUNITION CART':
+      missionIndex===4?'DESTROY BOTH FJORD GUNS':
+      missionIndex===5?'SABOTAGE SIGNALS / RESCUE SAILORS':
+      'SILENCE GUNS / HOLD DOCKS / ESCAPE'):
       missionIndex===3?'DESTROY RADAR  /  REACH EXTRACTION':
       missionIndex===2?'DESTROY THE DEPOT  /  REACH EXTRACTION':'REACH THE RADIO BUNKER';
     messageTime=5.2;panHint=7;
@@ -758,8 +876,10 @@
   function nearAimTarget(x,y){
     let target=null,d=21;
     for(const e of enemies){if(!e.alive)continue;const n=dist(x,y,e.x,e.y);if(n<d){d=n;target=e;}}
-    if(!bunker.dead&&x>=bunker.x-15&&x<=bunker.x+bunker.w+15&&y>=bunker.y-15&&y<=bunker.y+bunker.h+15)
-      return {x:bunker.x+bunker.w*.5,y:bunker.y+bunker.h*.48};
+    for(const b of IS_WW2?norwayTargets:[bunker]){
+      if(!b.dead&&x>=b.x-15&&x<=b.x+b.w+15&&y>=b.y-15&&y<=b.y+b.h+15)
+        return {x:b.x+b.w*.5,y:b.y+b.h*.48};
+    }
     return target||{x,y};
   }
   function beginFire(x,y){aim=nearAimTarget(x,y);fireUntil=clock+.04;shotClock=0;}
@@ -787,7 +907,9 @@
   // Bullets and enemy sight are stopped by trunks and solid bunker walls;
   // unlike movement, open water is not a barrier to gunfire.
   function shotBlocked(x,y){
-    if(!bunker.dead&&x>bunker.x&&x<bunker.x+bunker.w&&y>bunker.y&&y<bunker.y+bunker.h)return true;
+    for(const b of IS_WW2?norwayTargets:[bunker]){
+      if(!b.dead&&x>b.x&&x<b.x+b.w&&y>b.y&&y<b.y+b.h)return true;
+    }
     for(const t of trees){
       const r=Math.max(5,t.r*.56);
       if(Math.abs(x-t.x)>r||Math.abs(y-t.y)>r)continue;
@@ -871,10 +993,11 @@
     sound('boom');addParticles(x,y,'#ffce62',36,94,'explosion');addParticles(x,y,'#dd6932',22,72,'explosion');
     addParticles(x,y,'#343d2e',15,22,'smoke');decals.push({x,y,color:'#3b3d2c',life:90,r:18});
     for(const e of enemies){if(e.alive&&dist(x,y,e.x,e.y)<DIFFICULTY.grenadeRadius)killEnemy(e);}
-    if(!bunker.dead&&dist(x,y,bunker.x+bunker.w/2,bunker.y+bunker.h/2)<83){
-      bunker.hp=Math.max(0,bunker.hp-5);
-      addParticles(bunker.x+bunker.w/2,bunker.y+bunker.h/2,'#c8ae6e',18,72,'explosion');
-      checkBunker();
+    for(const b of IS_WW2?norwayTargets:[bunker]){
+      if(b.dead||dist(x,y,b.x+b.w/2,b.y+b.h/2)>=83)continue;
+      b.hp=Math.max(0,b.hp-5);
+      addParticles(b.x+b.w/2,b.y+b.h/2,'#c8ae6e',18,72,'explosion');
+      checkBunker(b);
     }
     for(const s of soldiers){if(s.alive&&dist(x,y,s.x,s.y)<22)killSoldier(s);}
   }
@@ -884,11 +1007,28 @@
     score+=survivors*250+grenades*30;
     completeCareerMission();sound('victory');startAfterAction('won');
   }
-  function checkBunker(){
-    if(bunker.dead||bunker.hp>0)return;
-    bunker.dead=true;score+=500;
-    explodeBunker();
-    if(IS_WW2){
+  function checkBunker(target=bunker){
+    if(target.dead||target.hp>0)return;
+    target.dead=true;score+=500;
+    explodeBunker(target);
+    if(IS_WW2&&missionIndex>=2){
+      const remaining=norwayTargets.filter(b=>!b.dead).length;
+      if(missionIndex===4){
+        flash(remaining?'FIRST GUN SILENCED - DESTROY THE NEXT!':'FJORD BATTERIES SILENCED! REACH EXTRACTION!',3);
+      }else if(missionIndex===5){
+        flash('SIGNALS DESTROYED - RESCUE THE SAILORS!',3);
+        spawnNorwayEnemies([[364,236],[410,198]],norwayLayout.rescue);
+      }else if(missionIndex===6){
+        if(remaining){
+          flash('GUN DESTROYED! '+remaining+' DEFENCES REMAIN',2.5);
+        }else{
+          norwayHoldStarted=true;norwayHold=35;
+          flash('DEFENCES DOWN! HOLD THE PIER FOR 35 SECONDS!',4);
+          spawnNorwayWave();
+        }
+      }
+      sound('start');
+    }else if(IS_WW2){
       flash('GUN SILENCED! SECURE THE LANDING ZONE!',4);
       sound('start');
     }else if(missionIndex===1)finishMission();
@@ -898,13 +1038,141 @@
       sound('start');
     }else {flash('DEPOT DESTROYED! REACH EXTRACTION!',3.8);sound('start');}
   }
-  function explodeBunker(){
-    for(let i=0;i<4;i++)addParticles(bunker.x+rand(0,bunker.w),bunker.y+rand(0,bunker.h),'#f3b95c',20,100,'explosion');
-    decals.push({x:bunker.x+bunker.w/2,y:bunker.y+bunker.h/2,color:'#3a3022',life:999,r:32});
+  function explodeBunker(b=bunker){
+    for(let i=0;i<4;i++)addParticles(b.x+rand(0,b.w),b.y+rand(0,b.h),'#f3b95c',20,100,'explosion');
+    decals.push({x:b.x+b.w/2,y:b.y+b.h/2,color:'#3a3022',life:999,r:32});
   }
 
   // Tactical enemy decisions. No map-wide omniscience: guards only engage
   // soldiers within sight, and investigate sounds at the last heard position.
+  function spawnNorwayEnemies(points,seek=null){
+    const destination=seek||[extraction.x,extraction.y];
+    for(const [x,y] of points){
+      const p=walkNearest(x,y);
+      const e=spawnEnemy(p.x*CELL+CELL/2,p.y*CELL+CELL/2,enemies.length);
+      e.alert=ENEMY_AI.alertDuration*2;
+      e.lastKnown={x:destination[0],y:destination[1]};
+      e.wander=0;
+      enemies.push(e);
+    }
+  }
+  function spawnNorwayWave(){
+    if(!IS_WW2||missionIndex!==6||norwayWaves>=norwayWaveLimit)return;
+    const sources=[
+      [[445,255],[478,210],[408,193]],
+      [[387,248],[478,284],[515,237]],
+      [[368,176],[455,156],[399,294]],
+      [[486,178],[548,248],[366,275]]
+    ];
+    spawnNorwayEnemies(sources[norwayWaves],norwayLayout.hold);
+    norwayWaves++;
+    flash('ENEMY COUNTERATTACK! WAVE '+norwayWaves,2.6);
+  }
+  function norwayAliveAt(x,y,r=32){
+    return soldiers.some(s=>s.alive&&dist(s.x,s.y,x,y)<r);
+  }
+  function norwayClearAt(x,y,r=65){
+    return !enemies.some(e=>e.alive&&dist(e.x,e.y,x,y)<r);
+  }
+  function norwayAllTargetsDead(){
+    return norwayTargets.length>0&&norwayTargets.every(t=>t.dead);
+  }
+  function norwayObjective(){
+    if(!IS_WW2)return null;
+    if(missionIndex===1)
+      return bunker.dead?{x:extraction.x,y:extraction.y,label:'SECURE BEACH'}:
+        {x:bunker.x+bunker.w/2,y:bunker.y+bunker.h/2,label:'COASTAL GUN'};
+    if(missionIndex===2){
+      const cp=norwayLayout.checkpoints[norwayCheckpoint];
+      return cp?{x:cp[0],y:cp[1],label:'CLEAR RIDGE '+(norwayCheckpoint+1)+'/3'}:null;
+    }
+    if(missionIndex===3)
+      return norwayConvoy?
+        {x:norwayConvoy.x,y:norwayConvoy.y,label:'ESCORT CART '+Math.round(norwayConvoy.health)+' HP'}:null;
+    const active=norwayTargets.find(t=>!t.dead);
+    if(active)return {x:active.x+active.w/2,y:active.y+active.h/2,
+      label:missionIndex===5?'DESTROY SIGNALS':
+        'DESTROY GUN '+(norwayTargets.indexOf(active)+1)+'/'+norwayTargets.length};
+    if(missionIndex===5&&!norwayRescued)
+      return {x:norwayLayout.rescue[0],y:norwayLayout.rescue[1],label:'RESCUE SAILORS'};
+    if(missionIndex===6&&norwayHoldStarted&&norwayHold>0)
+      return {x:norwayLayout.hold[0],y:norwayLayout.hold[1],
+        label:'HOLD PIER '+Math.ceil(norwayHold)+'S'};
+    return {x:extraction.x,y:extraction.y,
+      label:missionIndex===6?'BOARD FINAL SHIP':'REACH EXTRACTION'};
+  }
+  function updateNorway(dt){
+    if(missionIndex===1){
+      if(bunker.dead&&norwayAliveAt(extraction.x,extraction.y,extraction.r))finishMission();
+      return;
+    }
+    if(missionIndex===2){
+      const cp=norwayLayout.checkpoints[norwayCheckpoint];
+      if(cp&&norwayAliveAt(cp[0],cp[1],cp[2])&&norwayClearAt(cp[0],cp[1],70)){
+        norwayCheckpoint++;score+=250;
+        addParticles(cp[0],cp[1],'#b1dbbc',19,27,'spark');
+        if(norwayCheckpoint>=3)finishMission();
+        else flash('RIDGE '+norwayCheckpoint+' SECURED! ADVANCE!',2.7);
+      }
+    }else if(missionIndex===3&&norwayConvoy){
+      const cart=norwayConvoy;
+      if(cart.delivered)return;
+      const guards=enemies.filter(e=>e.alive&&dist(e.x,e.y,cart.x,cart.y)<88).length;
+      cart.health=Math.max(0,cart.health-dt*guards*2.4);
+      if(cart.health<=0){
+        norwayFailure='SUPPLY CART DESTROYED';
+        sound('fail');startAfterAction('lost');return;
+      }
+      if(norwayAliveAt(cart.x,cart.y,118)&&guards<3){
+        const dest=cart.waypoints[cart.index];
+        if(dest){
+          const d=dist(cart.x,cart.y,dest.x,dest.y);
+          const move=Math.min(d,dt*37);
+          if(d>0){cart.x+=(dest.x-cart.x)*move/d;cart.y+=(dest.y-cart.y)*move/d;}
+          if(d<5||move>=d)cart.index++;
+        }else{
+          cart.delivered=true;score+=450;flash('AMMUNITION DELIVERED!',3);
+          finishMission();return;
+        }
+        if(cart.index>=4&&cart.ambushes===0){
+          cart.ambushes=1;
+          spawnNorwayEnemies([[559,267],[530,390]],[cart.x,cart.y]);
+          flash('AMBUSH! PROTECT THE CART!',3);
+        }
+        if(cart.index>=8&&cart.ambushes===1){
+          cart.ambushes=2;
+          spawnNorwayEnemies([[824,266],[894,233]],[cart.x,cart.y]);
+          flash('SECOND AMBUSH! KEEP MOVING!',3);
+        }
+      }
+    }else if(missionIndex===4){
+      if(norwayAllTargetsDead()&&norwayAliveAt(extraction.x,extraction.y,extraction.r))
+        finishMission();
+    }else if(missionIndex===5){
+      if(norwayAllTargetsDead()&&!norwayRescued){
+        const [x,y]=norwayLayout.rescue;
+        if(norwayAliveAt(x,y,35)&&norwayClearAt(x,y,72)){
+          norwayRescued=true;score+=350;flash('SAILORS RESCUED! GET TO THE HARBOUR!',3);
+        }
+      }
+      if(norwayAllTargetsDead()&&norwayRescued&&
+         norwayAliveAt(extraction.x,extraction.y,extraction.r))finishMission();
+    }else if(missionIndex===6){
+      if(!norwayAllTargetsDead()||!norwayHoldStarted)return;
+      const [x,y]=norwayLayout.hold;
+      if(norwayHold>0){
+        if(norwayAliveAt(x,y,108)){
+          norwayHold=Math.max(0,norwayHold-dt);
+          if(norwayHold<=35-norwayWaves*10&&norwayHold>0)spawnNorwayWave();
+          if(norwayHold<=0){
+            score+=650;flash('SHIPS READY! BOARD THE FINAL TRANSPORT!',4);
+          }
+        }
+      }else if(norwayAliveAt(extraction.x,extraction.y,extraction.r)){
+        finishMission();
+      }
+    }
+  }
   function enemyMove(e,x,y,dt,speed){
     const dx=x-e.x,dy=y-e.y,d=Math.hypot(dx,dy);
     if(d<3)return true;
@@ -1037,9 +1305,12 @@
               addParticles(e.x,e.y,'#e6c778',2,15,'spark');
             }
           }
-          if(!impact&&!bunker.dead&&x>=bunker.x&&x<=bunker.x+bunker.w&&y>=bunker.y&&y<=bunker.y+bunker.h){
-            bunker.hp=Math.max(0,bunker.hp-.13);impact=true;
-            effect(x,y,'impact');addParticles(x,y,'#e6ca73',4,22,'spark');checkBunker();
+          if(!impact)for(const target of IS_WW2?norwayTargets:[bunker]){
+            if(target.dead||x<target.x||x>target.x+target.w||
+               y<target.y||y>target.y+target.h)continue;
+            target.hp=Math.max(0,target.hp-.13);impact=true;
+            effect(x,y,'impact');addParticles(x,y,'#e6ca73',4,22,'spark');
+            checkBunker(target);break;
           }
         }else{
           for(const s of soldiers){if(s.alive&&dist(x,y,s.x,s.y)<5.3){killSoldier(s);impact=true;break;}}
@@ -1067,7 +1338,8 @@
     for(let i=decals.length-1;i>=0;i--){decals[i].life-=dt;if(decals[i].life<=0)decals.splice(i,1);}
     for(let i=gunEffects.length-1;i>=0;i--){gunEffects[i].life-=dt;if(gunEffects[i].life<=0)gunEffects.splice(i,1);}
     for(let i=fallenBodies.length-1;i>=0;i--){fallenBodies[i].life-=dt;if(fallenBodies[i].life<=0)fallenBodies.splice(i,1);}
-    if(state==='playing'&&(IS_WW2||missionIndex>1)&&bunker.dead&&
+    if(state==='playing'&&IS_WW2)updateNorway(dt);
+    else if(state==='playing'&&missionIndex>1&&bunker.dead&&
        soldiers.some(s=>s.alive&&dist(s.x,s.y,extraction.x,extraction.y)<extraction.r)){
       finishMission();
     }
@@ -1119,9 +1391,34 @@
     c.restore();
     if(chosen){c.strokeStyle='#f5d777';c.lineWidth=1;c.strokeRect(Math.round(x)-12.5,Math.round(y)-13.5,25,27);}
   }
-  function drawBunker(){
-    const b=bunker,x=b.x,y=b.y,w=b.w,h=b.h;
+  function drawBunker(b=bunker){
+    if(b.kind==='none')return;
+    const x=b.x,y=b.y,w=b.w,h=b.h;
     rect(x-7,y+h-1,w+13,11,IS_WW2?'#48595d':'#26301f');
+    if(b.kind==='signals'){
+      if(b.dead){
+        rect(x-5,y-5,w+10,h+10,'#515d5b');
+        for(let i=0;i<17;i++)
+          rect(x+(i*19)%w,y+(i*13)%h,3+i%6,4,i%2?'#a3aca5':'#394846');
+        return;
+      }
+      // Signal hut, roof tiles, cable spool and tall radio mast.
+      rect(x-5,y-5,w+10,h+10,'#3a4e4b');
+      rect(x,y,w,h,'#746c5b');
+      rect(x+4,y+4,w-8,h-8,'#566a62');
+      for(let i=0;i<6;i++)rect(x+5+i*8,y+5,5,4,'#b4aaa0');
+      rect(x+11,y+25,14,17,'#2c413e');
+      rect(x+31,y+17,17,10,'#b3a880');
+      rect(x+39,y-30,3,44,'#283e3c');
+      rect(x+21,y-18,41,2,'#d2dbcb');
+      rect(x+23,y-25,3,17,'#758c84');
+      if((clock*2|0)%2)rect(x+40,y-33,6,5,'#e2a14d');
+      if(b.hp<b.maxHp){
+        rect(x+4,y-14,w-8,4,'#243638');
+        rect(x+4,y-14,(w-8)*clamp(b.hp/b.maxHp,0,1),4,'#e9c373');
+      }
+      return;
+    }
     if(b.kind==='coastal'){
       // Original pixel art: hardened coastal gun with a snow-crusted roof.
       if(b.dead){
@@ -1232,7 +1529,11 @@
   }
   function drawExtraction(){
     if(!IS_WW2&&missionIndex===1)return;
-    const {x,y}=extraction,active=bunker.dead;
+    if(IS_WW2&&(missionIndex===2||missionIndex===3))return;
+    const active=IS_WW2?(missionIndex===1?bunker.dead:
+      norwayAllTargetsDead()&&(missionIndex!==5||norwayRescued)&&
+      (missionIndex!==6||norwayHoldStarted&&norwayHold<=0)):bunker.dead;
+    const {x,y}=extraction;
     ctx.save();ctx.strokeStyle=active?'#f4dc86':'#8ba084';ctx.lineWidth=2;
     ctx.globalAlpha=active?(.65+Math.sin(clock*5)*.3):.6;
     ctx.strokeRect(x-23.5,y-21.5,47,43);
@@ -1249,9 +1550,79 @@
         rect(x+12,y-25,18,3,'#eef1e9');
       }
     }
-    text(IS_WW2?(active?'SECURE':'LANDING POINT'):(active?'EXTRACT':'LANDING ZONE'),
+    text(IS_WW2?(missionIndex===6?(active?'BOARD':'FINAL SHIP'):
+      active?'EXTRACT':'LANDING POINT'):(active?'EXTRACT':'LANDING ZONE'),
       x,y+25,8,active?C.gold:C.mint,'center');
     ctx.restore();
+  }
+  function drawNorwayObjects(){
+    if(!IS_WW2)return;
+    if(missionIndex===2){
+      norwayLayout.checkpoints.forEach((cp,i)=>{
+        const [x,y,r,label]=cp,secured=i<norwayCheckpoint;
+        ctx.save();
+        ctx.strokeStyle=secured?'#99bbad':i===norwayCheckpoint?'#f6d274':'#708b88';
+        ctx.lineWidth=2;ctx.globalAlpha=secured?.65:.7+Math.sin(clock*3)*.20;
+        ctx.strokeRect(x-r/2,y-r/2,r,r);ctx.restore();
+        rect(x-1,y-20,3,22,'#3e5256');
+        rect(x+2,y-19,15,10,secured?'#a5bbab':i===norwayCheckpoint?'#e8ca69':'#647a79');
+        text(secured?'CLEAR':label,x,y+18,8,secured?'#b8d8bf':C.sand,'center');
+      });
+    }
+    if(missionIndex===3&&norwayConvoy){
+      const c=norwayConvoy,x=c.x,y=c.y;
+      ctx.save();ctx.translate(x|0,y|0);
+      rect(-21,-10,44,20,'#344743');
+      rect(-17,-13,35,21,'#896d48');
+      for(let i=0;i<4;i++){
+        rect(-15+i*9,-11,7,4,'#c6b38c');
+        rect(-15+i*9,-4,7,3,'#665f43');
+      }
+      rect(-19,7,10,9,'#212c2a');rect(11,7,10,9,'#212c2a');
+      rect(-16,9,5,5,'#657270');rect(14,9,5,5,'#657270');
+      rect(22,-3,9,3,'#5b6651');
+      ctx.restore();
+      rect(x-23,y-27,48,5,'#2a3737');
+      rect(x-21,y-26,44*c.health/c.maxHealth,3,c.health>45?'#b5d38c':'#eb9b73');
+      text('AMMO',x,y+18,9,C.sand,'center');
+    }
+    if(missionIndex===5&&norwayLayout.rescue){
+      const [x,y]=norwayLayout.rescue;
+      if(!norwayRescued){
+        rect(x-28,y-27,55,55,'#31534a55');
+        ctx.save();ctx.strokeStyle=C.gold;ctx.strokeRect(x-25,y-25,50,50);ctx.restore();
+        for(const ox of [-12,9]){
+          rect(x+ox-4,y-3,9,11,'#567475');
+          rect(x+ox-3,y-8,7,6,'#c7ad8a');
+          rect(x+ox-6,y-12,13,4,'#d4d6c5');
+        }
+        text('SAILORS',x,y+19,9,C.gold,'center');
+      }else{
+        text('RESCUED',x,y+19,9,C.mint,'center');
+      }
+    }
+    if(missionIndex===5||missionIndex===6){
+      // Evacuation vessel with pixel wake, mooring lines and stern ramp.
+      const sx=extraction.x,sy=extraction.y-62;
+      rect(sx-46,sy-1,97,28,'#284a55');
+      rect(sx-41,sy-6,86,31,'#42585d');
+      rect(sx-33,sy-13,68,24,'#87958b');
+      rect(sx-28,sy-11,58,4,'#c4c8b8');
+      rect(sx-18,sy-23,29,17,'#546e70');
+      rect(sx-13,sy-27,5,7,'#3e555d');
+      for(const dx of [-33,-15,3,21])rect(sx+dx,sy+5,8,6,'#324b50');
+      rect(sx-9,sy+23,22,16,'#5a6361');
+      for(let k=0;k<5;k++)rect(sx-48+k*21,sy+28,12,2,'#8ba9a6');
+    }
+    if(missionIndex===6&&norwayHoldStarted&&norwayHold>0){
+      const [x,y]=norwayLayout.hold;
+      ctx.save();ctx.strokeStyle='#f1c76d';ctx.lineWidth=2;
+      ctx.globalAlpha=.65+Math.sin(clock*3)*.18;
+      ctx.beginPath();ctx.arc(x,y,47,0,Math.PI*2);ctx.stroke();ctx.restore();
+      rect(x-25,y-23,50,4,'#2a3d39');
+      rect(x-24,y-22,48*(1-norwayHold/35),2,C.gold);
+      text('HOLD '+Math.ceil(norwayHold)+'S',x,y+29,10,C.gold,'center');
+    }
   }
   function drawWorld(){
     ctx.save();ctx.beginPath();ctx.rect(HUD,0,VW,VH);ctx.clip();
@@ -1260,7 +1631,9 @@
     ctx.translate(Math.round(HUD-cam.x),-Math.round(cam.y));
     for(const d of decals){ctx.globalAlpha=clamp(d.life/13,0,.85);ctx.fillStyle=d.color;
       ctx.fillRect(d.x-(d.r||6),d.y-(d.r||6)/2,(d.r||6)*2,(d.r||6));ctx.globalAlpha=1;}
-    drawBunker();drawAmmo();drawExtraction();
+    if(IS_WW2){for(const target of norwayTargets)drawBunker(target);}
+    else drawBunker();
+    drawAmmo();drawExtraction();drawNorwayObjects();
     // Destination markers and formation trails.
     if(state==='playing')for(const s of soldiers){
       if(!s.alive||!s.path.length)continue;
@@ -1334,20 +1707,22 @@
     // Upper objective banner and directional arrow when off-camera.
     if(state==='playing'){
       rect(HUD+8,5,194,21,'#152018d9');
+      const norGoal=IS_WW2?norwayObjective():null;
       const missionObjective=IS_WW2?
-        (bunker.dead?'01  SECURE LANDING ZONE':'01  SILENCE COASTAL GUN'):
+        (String(missionIndex).padStart(2,'0')+'  '+(norGoal?.label||'OPERATION COMPLETE')):
         missionIndex===3?(bunker.dead?'03  REACH EXTRACTION':'03  DESTROY RADAR ARRAY'):
         missionIndex===2?(bunker.dead?'02  REACH EXTRACTION':'02  DESTROY SUPPLY DEPOT'):
         '01  DESTROY RADIO BASE';
       text(missionObjective,HUD+16,10,9,C.cream);
-      const objective=(IS_WW2||missionIndex>1)&&bunker.dead?extraction:
+      const objective=IS_WW2?(norGoal||extraction):
+        missionIndex>1&&bunker.dead?extraction:
         {x:bunker.x+bunker.w/2,y:bunker.y+bunker.h/2};
       const bx=objective.x-cam.x,by=objective.y-cam.y;
       if((IS_WW2||missionIndex>1||!bunker.dead)&&(bx<4||bx>VW-10||by<20||by>VH-14)){
         const px=clamp(bx,12,VW-14),py=clamp(by,34,VH-18),ang=Math.atan2(by-VH*.5,bx-VW*.5);
         ctx.save();ctx.translate(HUD+px,py);ctx.rotate(ang);
         ctx.fillStyle=C.gold;ctx.beginPath();ctx.moveTo(11,0);ctx.lineTo(-8,-7);ctx.lineTo(-4,0);ctx.lineTo(-8,7);ctx.closePath();ctx.fill();ctx.restore();
-        text(IS_WW2&&bunker.dead?'SECURE':missionIndex>1&&bunker.dead?'EVAC':'TARGET',
+        text(IS_WW2?'GOAL':missionIndex>1&&bunker.dead?'EVAC':'TARGET',
           HUD+px-19,py+10,8,C.gold);
       }
     }
@@ -1361,8 +1736,16 @@
     rect(x,y,w,h,'#1c2d23');
     for(const t of trees){const tx=x+t.x/MW*w,ty=y+t.y/MH*h;ctx.fillStyle='#466a31';ctx.fillRect(tx|0,ty|0,2,2);}
     for(let yy=0;yy<h;yy+=2){let xx=x+riverX(yy/h*MH)/MW*w;rect(xx,y+yy,5,2,'#4a858c');}
-    rect(x+bunker.x/MW*w,y+bunker.y/MH*h,4,4,bunker.dead?'#5b5b47':'#f6c76b');
-    if(IS_WW2||missionIndex>1)rect(x+extraction.x/MW*w-2,y+extraction.y/MH*h-2,5,5,bunker.dead?'#f6e08a':'#6c8d79');
+    if(IS_WW2){
+      for(const b of norwayTargets)
+        rect(x+b.x/MW*w,y+b.y/MH*h,4,4,b.dead?'#546d69':'#f6c76b');
+      const objective=norwayObjective();
+      if(objective)rect(x+objective.x/MW*w-2,y+objective.y/MH*h-2,5,5,'#f8dd8c');
+      if(norwayConvoy)rect(x+norwayConvoy.x/MW*w,y+norwayConvoy.y/MH*h,4,3,'#9abbb4');
+    }else{
+      rect(x+bunker.x/MW*w,y+bunker.y/MH*h,4,4,bunker.dead?'#5b5b47':'#f6c76b');
+      if(missionIndex>1)rect(x+extraction.x/MW*w-2,y+extraction.y/MH*h-2,5,5,bunker.dead?'#f6e08a':'#6c8d79');
+    }
     for(const e of enemies)if(e.alive)rect(x+e.x/MW*w,y+e.y/MH*h,2,2,'#b75e44');
     for(const s of soldiers)if(s.alive)rect(x+s.x/MW*w,y+s.y/MH*h,3,3,
       split?(s.team==='A'?'#f5d477':'#83d1d8'):'#e4e7b8');
@@ -1374,7 +1757,8 @@
     rect(0,0,HUD,WH,C.hud);rect(HUD-3,0,3,WH,'#0e150e');
     rect(0,0,HUD,38,'#101b15');rect(0,38,HUD,3,'#728246');
     text('GREEN DAWN',8,7,13,C.sand);
-    text(IS_WW2?'01  NORWAY':String(missionIndex).padStart(2,'0')+'  '+operationName(missionIndex),
+    text(IS_WW2?String(missionIndex).padStart(2,'0')+'  NORWAY':
+      String(missionIndex).padStart(2,'0')+'  '+operationName(missionIndex),
       8,24,7,C.mint);
     if(!split){
       rect(5,47,100,18,selected===-1?'#607542':'#303e29');
@@ -1619,9 +2003,9 @@
       memorialStart={x:rosterStart.x+third+4,y:223,w:third,h:30};
       backupStart={x:memorialStart.x+third+4,y:223,w:bw-2*third-8,h:30};
     }else{
-      text(IS_WW2?'NORWAY: FIRST LANDING SECURED':'THREE MISSIONS COMPLETE',
+      text(IS_WW2?'NORWAY EVACUATION COMPLETE':'THREE MISSIONS COMPLETE',
         x,146,IS_WW2?11:12,C.gold,'center');
-      text(IS_WW2?'MISSION 02 - IN DEVELOPMENT':'MISSION 04  -  COMING SOON',
+      text(IS_WW2?'MISSION 07 - DUNKIRK COMING SOON':'MISSION 04  -  COMING SOON',
         x,166,10,C.mint,'center');
       titleStart={x:0,y:0,w:0,h:0};
       const third=Math.floor((bw-8)/3);
@@ -1645,7 +2029,7 @@
   function backupPayload(){
     return JSON.stringify({
       format:BACKUP_FORMAT,version:BACKUP_VERSION,createdAt:new Date().toISOString(),
-      gameVersion:'0.13.0',career:JSON.parse(JSON.stringify(career)),
+      gameVersion:'0.14.0',career:JSON.parse(JSON.stringify(career)),
       settings:{audioOn}
     },null,2);
   }
@@ -1865,7 +2249,8 @@
   }
   function drawEnd(won){
     shade(.86);const x=HUD+VW/2;
-    text(won?'MISSION COMPLETE':'SQUAD WIPED OUT',x,18,won?23:22,won?C.gold:'#e78a6d','center');
+    text(won?'MISSION COMPLETE':norwayFailure||'SQUAD WIPED OUT',
+      x,18,won?23:18,won?C.gold:'#e78a6d','center');
     text(operationName(missionIndex),x,50,10,C.cream,'center');
     rect(x-127,67,254,2,'#71834f');
     text(won?'PROMOTIONS  /  ROLL CALL':'LOST IN ACTION',x,78,10,C.mint,'center');
@@ -2144,8 +2529,8 @@
   window.addEventListener('pagehide',pauseForBackground);
   window.addEventListener('green-dawn-pause',pauseForBackground);
   loadSave();missionIndex=Math.min(CAMPAIGN_MISSIONS,career.nextMission);
-  extraction=IS_WW2?{x:797,y:219,r:27}:
-    missionIndex===3?{x:913,y:157,r:27}:{x:319,y:91,r:25};
+  if(IS_WW2)prepareNorwayMission();
+  else extraction=missionIndex===3?{x:913,y:157,r:27}:{x:319,y:91,r:25};
   resize();generateTerrain();
   if(career.pendingHonours){
     // If the app was closed at the ceremony, show it again on return rather
@@ -2157,12 +2542,27 @@
   }
   soldiers=deployment().map((m,i)=>({name:m.name,rank:m.rank,careerId:m.id,x:111+i*9,y:573+i*11,
     alive:true,team:'A',path:[],face:-.6,id:i}));
-  enemies=[];bunker={x:871,y:119,w:67,h:53,hp:8,maxHp:8,dead:false};ammo={x:461,y:371,taken:false};
+  enemies=[];
+  if(!IS_WW2)bunker={x:871,y:119,w:67,h:53,hp:8,maxHp:8,dead:false};
+  ammo={x:461,y:371,taken:false};
   cam={x:0,y:MH-VH};
   // Expose a tiny read-only test surface to catch playability regressions.
   Object.defineProperty(window,'GREEN_DAWN_TEST',{value:{
     get status(){return {state,campaign:IS_WW2?'ww2':'jungle',plannedMissions:CAMPAIGN_PLAN,
       availableMissions:CAMPAIGN_MISSIONS,mission:missionIndex,nextMission:career.nextMission,mode,score,kills,grenades,alive:soldiers.filter(s=>s.alive).length,enemyCount:enemies.filter(e=>e.alive).length,bunkerHp:bunker.hp,bunkerDead:bunker.dead,objectiveKind:bunker.kind,reinforcementsSent,extraction:{...extraction},completed:career.victories.map(v=>v.mission),camera:{...cam},time:clock};},
+    get norway(){return IS_WW2?{
+      operation:missionIndex,kind:norwayLayout?.kind||'coastal',
+      title:operationName(missionIndex),objective:norwayObjective(),
+      checkpoints: norwayLayout?.checkpoints?.map(p=>({x:p[0],y:p[1]}))||[],
+      clearedRidges:norwayCheckpoint,
+      targets:norwayTargets.map(t=>({x:t.x,y:t.y,hp:t.hp,dead:t.dead,kind:t.kind})),
+      convoy:norwayConvoy?{x:norwayConvoy.x,y:norwayConvoy.y,
+        hp:norwayConvoy.health,waypoint:norwayConvoy.index,
+        ambushes:norwayConvoy.ambushes,delivered:norwayConvoy.delivered}:null,
+      rescued:norwayRescued,holdRemaining:norwayHold,
+      holding:norwayHoldStarted,waves:norwayWaves,
+      waveLimit:norwayWaveLimit,failed:norwayFailure
+    }:null;},
     get controls(){return {pending:!!(gesture&&!gesture.firing),firing:!!(gesture&&gesture.firing),shotsFired:playerShots,aim:{...aim},holdMs:HOLD_TO_FIRE_MS};},
     get roster(){return soldiers.map(s=>({name:s.name,careerId:s.careerId,rank:s.rank,x:s.x,y:s.y,alive:s.alive,team:s.team,followId:s.followId??null,followGap:s.followGap||0,trailPoints:s.trail?.length||0,followGoal:s.followGoal||null,pathLength:s.path.length,destination:s.path.at(-1)||null}));},
     get career(){return JSON.parse(JSON.stringify(career));},
