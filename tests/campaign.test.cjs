@@ -17,6 +17,10 @@ const norwayJs=fs.readFileSync(path.join(__dirname,'../norway-missions.js'),'utf
 const norwayBundled=fs.readFileSync(path.join(__dirname,'../android/app/src/main/assets/norway-missions.js'),'utf8');
 assert.equal(norwayJs,norwayBundled,'Norway missions must be bundled identically for Android');
 assert.ok(html.includes('<script src="norway-missions.js"></script>'));
+const dunkirkJs=fs.readFileSync(path.join(__dirname,'../dunkirk-missions.js'),'utf8');
+const dunkirkBundled=fs.readFileSync(path.join(__dirname,'../android/app/src/main/assets/dunkirk-missions.js'),'utf8');
+assert.equal(dunkirkJs,dunkirkBundled,'France campaign scripts must be bundled offline');
+assert.ok(html.includes('<script src="dunkirk-missions.js"></script>'));
 
 function saveAfter(cleared=2){
   return {
@@ -86,7 +90,10 @@ function boot(save,ww2=false){
     '    moveEveryone(x,y){soldiers.forEach((s,i)=>{if(s.alive){s.x=x+i*8;s.y=y+i*7;s.path=[];}});},',
     '    destroyTarget(i=0){const target=norwayTargets[i];if(!target)throw Error("No target");target.hp=0;checkBunker(target);},',
     '    hurtConvoy(amount){if(norwayConvoy)norwayConvoy.health=Math.max(0,norwayConvoy.health-amount);},',
+    '    hurtRoadblock(amount){dunkirkBarrierHp=Math.max(0,dunkirkBarrierHp-amount);},',
+    '    hurtBridge(amount){dunkirkBridgeHp=Math.max(0,dunkirkBridgeHp-amount);},',
     '    cartToEnd(){if(norwayConvoy)norwayConvoy.index=norwayConvoy.waypoints.length;},',
+    '    setCartWaypoint(i){if(norwayConvoy)norwayConvoy.index=i;},',
     '    step(dt=.016){update(dt);},',
     '    drawFrame(){draw();},',
     '    get failure(){return norwayFailure;}',
@@ -101,6 +108,7 @@ function boot(save,ww2=false){
     performance:{now:()=>0},requestAnimationFrame(){},console
   };
   vm.runInNewContext(norwayJs,sandbox,{timeout:10000,filename:'norway-missions.js'});
+  vm.runInNewContext(dunkirkJs,sandbox,{timeout:10000,filename:'dunkirk-missions.js'});
   vm.runInNewContext(script,sandbox,{timeout:20000,filename:'green-dawn-game.js'});
   return {api:window.GREEN_DAWN_TEST,qa:window.__GD_QA,storage,native,window};
 }
@@ -199,7 +207,7 @@ test('Samsung backup exports a complete versioned career and memorial file',()=>
   const file=JSON.parse(native.exports[0]);
   assert.equal(file.format,'GREEN_DAWN_SAVE');
   assert.equal(file.version,1);
-  assert.equal(file.gameVersion,'0.14.0');
+  assert.equal(file.gameVersion,'0.15.0');
   assert.equal(file.career.active.length,3);
   assert.equal(file.career.fallen.length,1);
   assert.equal(file.career.victories.length,2);
@@ -299,7 +307,7 @@ test('100 WWII operations are grouped into 16 six-mission historical campaigns p
   const data=sandbox.window.GREEN_DAWN_WW2;
   assert.equal(data.campaigns.length,17);
   assert.equal(data.missions.length,100);
-  assert.equal(data.available,6);
+  assert.equal(data.available,12);
   assert.equal(data.campaigns[0].country,'Norway');
   assert.equal(data.campaigns[15].last,96);
   assert.equal(data.campaigns[16].first,97);
@@ -315,7 +323,7 @@ test('WWII career is independent of the completed jungle campaign and starts in 
   const {api,qa,storage}=boot(null,true);
   assert.equal(api.status.campaign,'ww2');
   assert.equal(api.status.plannedMissions,100);
-  assert.equal(api.status.availableMissions,6);
+  assert.equal(api.status.availableMissions,12);
   assert.equal(api.status.nextMission,1);
   assert.equal(api.career.active[0].name,'JACK');
   assert.equal(api.career.active[1].name,'TOM');
@@ -401,7 +409,7 @@ test('A v0.13 Norway Level 001 save unlocks Level 002 without resetting soldiers
   api.start();
   assert.equal(api.status.mission,2);
   assert.equal(api.norway.kind,'ridge');
-  assert.equal(api.status.availableMissions,6);
+  assert.equal(api.status.availableMissions,12);
   assert.equal(JSON.parse(storage.get('green-dawn-ww2-campaign-v1')).victories.length,1);
 });
 
@@ -512,7 +520,8 @@ test('Mission 006 demands three targets, 35-second pier defence and final ship b
   assert.equal(api.status.nextMission,7);
   assert.equal(api.career.victories.length,6);
   qa.leave();qa.camp();api.start();
-  assert.equal(api.status.state,'title','completed Norway cannot be replayed');
+  assert.equal(api.status.state,'playing','Mission 007 should unlock after the Norway finale');
+  assert.equal(api.status.mission,7,'cleared Mission 006 cannot be replayed');
   assert.equal(JSON.parse(storage.get('green-dawn-ww2-campaign-v1')).nextMission,7);
 });
 
@@ -539,7 +548,7 @@ test('Norway medal ceremony contains only the current fallen and leaves jungle s
   assert.equal(storage.get('green-dawn-campaign-v1'),jungleBefore);
 });
 
-test('Norway six-mission backup restores next level 007 locked without rewriting ranks',()=>{
+test('Norway six-mission backup restores unlocked Dunkirk Level 007 and soldier ranks',()=>{
   const past=norwaySaveAfter(6);
   const {qa,api,storage,window}=boot(norwaySaveAfter(1),true);
   qa.openBackup();
@@ -552,5 +561,206 @@ test('Norway six-mission backup restores next level 007 locked without rewriting
   const fresh=boot(restored,true);
   assert.equal(fresh.api.status.nextMission,7);
   fresh.api.start();
-  assert.equal(fresh.api.status.state,'title');
+  assert.equal(fresh.api.status.state,'playing');
+  assert.equal(fresh.api.status.mission,7);
+  assert.equal(fresh.api.dunkirk.kind,'rally');
+});
+
+
+test('Dunkirk 007–012 are six playable maps, with a distinct French route and objective',()=>{
+  for(let mission=7;mission<=12;mission++){
+    const {api,qa}=boot(norwaySaveAfter(mission-1),true);
+    api.start();
+    assert.equal(api.status.mission,mission);
+    assert.equal(api.status.availableMissions,12);
+    assert.equal(api.dunkirk.mission,mission);
+    assert.ok(api.dunkirk.objective?.label,'each mission has a current target');
+    assert.ok(api.path(590,330,660,330).length>0,
+      'French canal bridge must be navigable on level '+mission);
+    assert.doesNotThrow(()=>qa.drawFrame(),
+      'every new Dunkirk scene must render correctly on canvas');
+  }
+});
+
+test('Road to Dunkirk requires BOTH separated sections, not just reaching extraction',()=>{
+  const {api,qa,storage}=boot(norwaySaveAfter(6),true);
+  const jungle=storage.get('green-dawn-campaign-v1');
+  api.start();
+  assert.equal(api.dunkirk.kind,'rally');
+  assert.equal(api.status.mission,7);
+  qa.moveFirst(api.status.extraction.x,api.status.extraction.y);qa.step();
+  assert.equal(api.status.state,'playing','no early victory at the extraction point');
+  qa.clearEnemies();
+  qa.moveFirst(324,457);qa.step();
+  assert.equal(api.dunkirk.rallies,1);
+  qa.moveFirst(api.status.extraction.x,api.status.extraction.y);qa.step();
+  assert.equal(api.status.state,'playing','first rescue alone cannot finish');
+  qa.moveFirst(764,267);qa.step();
+  assert.equal(api.dunkirk.rallies,2);
+  qa.clearEnemies();
+  qa.moveFirst(api.status.extraction.x,api.status.extraction.y);qa.step();
+  assert.equal(api.status.state,'honours');
+  assert.equal(api.status.nextMission,8);
+  assert.equal(api.career.victories.length,7);
+  assert.equal(storage.get('green-dawn-campaign-v1'),jungle);
+  qa.leave();qa.camp();api.start();
+  assert.equal(api.status.mission,8,'completed Road to Dunkirk cannot replay');
+});
+
+test('Holding the Line requires roadblock defence, holds position for 30 seconds, allows retreat',()=>{
+  const {api,qa}=boot(norwaySaveAfter(7),true);
+  api.start();
+  assert.equal(api.dunkirk.kind,'roadblock');
+  qa.clearEnemies();qa.moveFirst(400,416);qa.step();
+  assert.equal(api.dunkirk.holdStarted,true);
+  assert.ok(api.dunkirk.holdRemaining>29);
+  qa.clearEnemies();qa.step(1);
+  const stopped=api.dunkirk.holdRemaining;
+  qa.moveEveryone(900,550);qa.clearEnemies();qa.step(1);
+  assert.equal(api.dunkirk.holdRemaining,stopped,'hold pauses if the line is abandoned');
+  qa.moveEveryone(400,416);
+  for(let i=0;i<32&&api.dunkirk.holdRemaining>0;i++){qa.clearEnemies();qa.step(1);}
+  assert.equal(api.dunkirk.holdRemaining,0);
+  assert.equal(api.status.state,'playing','must physically withdraw after holding');
+  qa.moveFirst(api.status.extraction.x,api.status.extraction.y);qa.clearEnemies();qa.step();
+  assert.equal(api.status.state,'honours');
+  assert.equal(api.status.nextMission,9);
+});
+
+test('Roadblock overrun loses only current operation and preserves the past victories',()=>{
+  const {api,qa}=boot(norwaySaveAfter(7),true);
+  api.start();qa.clearEnemies();qa.moveFirst(400,416);qa.step();
+  qa.hurtRoadblock(100);qa.step();
+  assert.equal(api.status.state,'honours');
+  assert.match(qa.failure,/ROADBLOCK OVERRUN/);
+  assert.equal(api.status.nextMission,8,'failed defence cannot skip the mission');
+  qa.leave();qa.camp();api.start();
+  assert.equal(api.status.mission,8);
+  assert.equal(api.dunkirk.roadblockHp,100,'roadblock must recover on retry');
+});
+
+test('The Canal Bridge preserves bridge integrity through three withdrawal columns',()=>{
+  const {api,qa}=boot(norwaySaveAfter(8),true);
+  api.start();
+  assert.equal(api.dunkirk.kind,'bridge');
+  qa.clearEnemies();qa.moveFirst(580,331);qa.step();
+  assert.equal(api.dunkirk.holdStarted,true);
+  assert.equal(api.dunkirk.bridgeHp,100);
+  for(let i=0;i<34&&api.dunkirk.holdRemaining>0;i++){qa.clearEnemies();qa.step(1);}
+  assert.equal(api.dunkirk.crossings,3);
+  assert.equal(api.status.state,'playing');
+  qa.moveFirst(api.status.extraction.x,api.status.extraction.y);qa.clearEnemies();qa.step();
+  assert.equal(api.status.state,'honours');
+  assert.equal(api.status.nextMission,10);
+
+  const broken=boot(norwaySaveAfter(8),true);
+  broken.api.start();broken.qa.clearEnemies();broken.qa.moveFirst(580,331);broken.qa.step();
+  broken.qa.hurtBridge(100);broken.qa.step();
+  assert.equal(broken.api.status.state,'honours');
+  assert.match(broken.qa.failure,/CANAL BRIDGE DESTROYED/);
+  assert.equal(broken.api.status.nextMission,9);
+});
+
+test('Abandoned Armour requires three separate disabled vehicles before reaching the coast',()=>{
+  const {api,qa}=boot(norwaySaveAfter(9),true);
+  api.start();
+  assert.equal(api.dunkirk.kind,'armour');
+  assert.equal(api.status.grenades,5,'bridge mission supplied extra demolition weapons');
+  assert.equal(api.dunkirk.targets.length,3);
+  qa.moveFirst(api.status.extraction.x,api.status.extraction.y);qa.step();
+  assert.equal(api.status.state,'playing');
+  qa.destroyTarget(0);qa.destroyTarget(1);qa.clearEnemies();qa.step();
+  assert.equal(api.status.state,'playing');
+  qa.destroyTarget(2);qa.clearEnemies();qa.step();
+  assert.equal(api.status.state,'honours');
+  assert.equal(api.status.nextMission,11);
+});
+
+test('The Last Road medevac stays with the squad and can fail if its health reaches zero',()=>{
+  const {api,qa}=boot(norwaySaveAfter(10),true);
+  api.start();qa.clearEnemies();
+  assert.equal(api.dunkirk.kind,'medevac');
+  const first=api.dunkirk.convoy;
+  assert.equal(first.hp,130);
+  qa.moveEveryone(900,570);qa.step(.25);
+  assert.equal(api.dunkirk.convoy.x,first.x,'ambulance cannot move without escort');
+  qa.moveEveryone(first.x,first.y);qa.step(.25);
+  assert.ok(api.dunkirk.convoy.x>first.x);
+  assert.equal(api.status.state,'playing');
+  qa.cartToEnd();qa.clearEnemies();qa.step();
+  assert.equal(api.status.state,'honours');
+  assert.equal(api.status.nextMission,12);
+
+  const wrecked=boot(norwaySaveAfter(10),true);
+  wrecked.api.start();wrecked.qa.hurtConvoy(130);wrecked.qa.step();
+  assert.equal(wrecked.api.status.state,'honours');
+  assert.match(wrecked.qa.failure,/WOUNDED TRANSPORT LOST/);
+  assert.equal(wrecked.api.status.nextMission,11);
+});
+
+test('Operation Dynamo needs three pillboxes, two evacuation columns, the beach hold and final boat',()=>{
+  const {api,qa,storage}=boot(norwaySaveAfter(11),true);
+  api.start();
+  assert.equal(api.dunkirk.kind,'dynamo');
+  assert.equal(api.status.grenades,5);
+  assert.equal(api.dunkirk.targetCount,3);
+  qa.moveFirst(api.status.extraction.x,api.status.extraction.y);qa.step();
+  assert.equal(api.status.state,'playing','cannot evacuate before stopping the guns');
+  qa.destroyTarget(0);qa.destroyTarget(1);qa.clearEnemies();qa.step();
+  assert.equal(api.dunkirk.rallies,0);
+  qa.destroyTarget(2);qa.clearEnemies();
+  qa.moveFirst(352,242);qa.step();
+  assert.equal(api.dunkirk.rallies,1);
+  qa.moveFirst(api.status.extraction.x,api.status.extraction.y);qa.step();
+  assert.equal(api.status.state,'playing','one regrouped column is insufficient');
+  qa.moveFirst(250,197);qa.step();
+  assert.equal(api.dunkirk.rallies,2);
+  assert.equal(api.dunkirk.holdStarted,true);
+  assert.ok(api.dunkirk.holdRemaining>46);
+  assert.equal(api.dunkirk.waves,1);
+  qa.moveEveryone(900,555);qa.clearEnemies();qa.step(1);
+  assert.ok(api.dunkirk.holdRemaining>46,'beach countdown pauses when undefended');
+  qa.moveEveryone(265,178);
+  for(let i=0;i<48&&api.dunkirk.holdRemaining>0;i++){qa.clearEnemies();qa.step(1);}
+  assert.equal(api.dunkirk.holdRemaining,0);
+  assert.ok(api.dunkirk.waves>=3);
+  assert.equal(api.status.state,'playing');
+  qa.moveFirst(api.status.extraction.x,api.status.extraction.y);qa.clearEnemies();qa.step();
+  assert.equal(api.status.state,'honours');
+  assert.equal(api.status.nextMission,13);
+  assert.equal(api.career.victories.length,12);
+  assert.equal(JSON.parse(storage.get('green-dawn-ww2-campaign-v1')).nextMission,13);
+  qa.leave();qa.camp();api.start();
+  assert.equal(api.status.state,'title','no replay after completed Dunkirk');
+});
+
+test('No casualties in armour mission reduces counterattack waves on Dunkirk beach',()=>{
+  const strong=boot(norwaySaveAfter(11),true);
+  strong.api.start();
+  assert.equal(strong.api.dunkirk.waveLimit,4);
+  const costly=norwaySaveAfter(11);
+  costly.victories[9].casualties=1;
+  const weak=boot(costly,true);
+  weak.api.start();
+  assert.equal(weak.api.dunkirk.waveLimit,5);
+});
+
+test('WWII backup restores completed Dunkirk without touching the separate jungle career',()=>{
+  const past=norwaySaveAfter(12);
+  const {api,qa,storage,window}=boot(norwaySaveAfter(6),true);
+  const jungle=storage.get('green-dawn-campaign-v1');
+  qa.openBackup();
+  qa.receiveBackup(JSON.stringify({format:'GREEN_DAWN_WW2_SAVE',version:1,career:past,
+    settings:{audioOn:true}}));
+  assert.equal(api.status.state,'backup-confirm');
+  qa.confirmBackup();
+  assert.equal(window.reloadCount,1);
+  const restored=JSON.parse(storage.get('green-dawn-ww2-campaign-v1'));
+  assert.equal(restored.victories.length,12);
+  assert.equal(restored.active[0].name,'JACK');
+  const reloaded=boot(restored,true);
+  assert.equal(reloaded.api.status.nextMission,13);
+  reloaded.api.start();
+  assert.equal(reloaded.api.status.state,'title');
+  assert.equal(storage.get('green-dawn-campaign-v1'),jungle);
 });

@@ -31,9 +31,10 @@
     <div id="orientation" role="status"><div class="icon">↻</div><h1>ROTATE TO DEPLOY</h1><p>Turn your phone sideways for the full 16-bit battlefield.</p></div>
   </main>
   <script src="norway-missions.js"></script>
+  <script src="dunkirk-missions.js"></script>
   <script>
 /*
-  GREEN DAWN v0.14 — COMPLETE SIX-MISSION NORWAY CAMPAIGN
+  GREEN DAWN v0.15 — NORWAY + DUNKIRK CAMPAIGNS
   Original game, procedural pixel art, original gameplay code and synthesized SFX.
   No art/music/code from Cannon Fodder or any other game is used.
 */
@@ -64,8 +65,10 @@
   let playerShots=0,reinforcementsSent=false;
   const IS_WW2=/(?:^|[?&])campaign=ww2(?:&|$)/.test(window.location.search||'');
   const NORWAY=IS_WW2?window.GREEN_DAWN_NORWAY:null;
-  if(IS_WW2&&(!NORWAY||NORWAY.missions.length!==6))throw Error('Norway mission data missing');
-  const CAMPAIGN_MISSIONS=IS_WW2?6:3;
+  const DUNKIRK=IS_WW2?window.GREEN_DAWN_DUNKIRK:null;
+  if(IS_WW2&&(!NORWAY||NORWAY.missions.length!==6||!DUNKIRK||DUNKIRK.missions.length!==6))
+    throw Error('WWII campaign chapter data missing');
+  const CAMPAIGN_MISSIONS=IS_WW2?12:3;
   const CAMPAIGN_PLAN=IS_WW2?100:3;
   // Separate soldier careers: existing jungle saves are untouched.
   const CAREER_KEY=IS_WW2?'green-dawn-ww2-campaign-v1':'green-dawn-campaign-v1';
@@ -90,12 +93,17 @@
   let memorialOffset=-48,memorialFinger=null,memorialHoldUntil=0;
   let memorialReturn='title',memorialOperation=1,memorialRecent=[],memorialAutomatic=false,memorialMissionOnly=false;
   let memorialButton={x:0,y:0,w:0,h:0},memorialWindow={x:0,y:0,w:0,h:0};
-  const operationName=n=>IS_WW2?(NORWAY.byNumber(n)?.title.toUpperCase()||'AWAITING ORDERS'):
+  const ww2ByNumber=n=>NORWAY?.byNumber(n)||DUNKIRK?.byNumber(n)||null;
+  const isDunkirk=()=>IS_WW2&&missionIndex>=7;
+  const operationName=n=>IS_WW2?(ww2ByNumber(n)?.title.toUpperCase()||'AWAITING ORDERS'):
     n===1?'JUNGLE ASSAULT':n===2?'DEPOT RAID':n===3?'RADAR BLACKOUT':'AWAITING ORDERS';
   // Unrelated jungle saves, missions and assets continue on their original paths.
   let norwayLayout=null,norwayTargets=[],norwayCheckpoint=0,norwayConvoy=null;
   let norwayRescued=false,norwayHold=0,norwayHoldStarted=false,norwayWaves=0;
   let norwayWaveLimit=4,norwayFailure='',norwayEvent='';
+  // French theatre phase state. Uses the same permanent WWII career/save key.
+  let dunkirkRallies=0,dunkirkBarrierHp=100,dunkirkBridgeHp=100;
+  let dunkirkColumns=0,dunkirkPhase='approach';
   // A small settings key that survives a native WebView restart.
   try {audioOn=localStorage.getItem('green-dawn-audio-v2')!=='off';}catch(_){}
   let seed=1;
@@ -239,11 +247,13 @@
 
   function prepareNorwayMission(){
     if(!IS_WW2)return;
-    norwayLayout=NORWAY.byNumber(missionIndex)||null;
-    const specs=norwayLayout?.targets||[];
+    norwayLayout=ww2ByNumber(missionIndex);
+    if(!norwayLayout)throw Error('Unimplemented WWII mission '+missionIndex);
+    const specs=norwayLayout.targets||[];
     norwayTargets=specs.map(([x,y,w,h,hp,label],i)=>({
       x,y,w,h,hp,maxHp:hp,dead:false,
-      kind:missionIndex===5?'signals':'coastal',label,id:i
+      kind:missionIndex===5?'signals':missionIndex===10?'armour':
+        missionIndex===12?'pillbox':'coastal',label,id:i
     }));
     if(missionIndex===1){
       bunker={x:871,y:119,w:67,h:53,hp:8,maxHp:8,dead:false,kind:'coastal'};
@@ -255,11 +265,16 @@
     extraction=loc?{x:loc[0],y:loc[1],r:26}:{x:797,y:219,r:27};
     norwayCheckpoint=0;norwayRescued=false;norwayHold=0;
     norwayHoldStarted=false;norwayWaves=0;norwayFailure='';norwayEvent='';
-    norwayWaveLimit=career.victories.some(v=>v.mission===4&&v.casualties===0)?3:4;
-    norwayConvoy=missionIndex===3?{
+    norwayWaveLimit=missionIndex===12?
+      (career.victories.some(v=>v.mission===10&&v.casualties===0)?4:5):
+      (career.victories.some(v=>v.mission===4&&v.casualties===0)?3:4);
+    dunkirkRallies=0;dunkirkBarrierHp=100;dunkirkBridgeHp=100;
+    dunkirkColumns=0;dunkirkPhase='approach';
+    norwayConvoy=(missionIndex===3||missionIndex===11)?{
       x:norwayLayout.convoy[0][0],y:norwayLayout.convoy[0][1],
       waypoints:norwayLayout.convoy.map(p=>({x:p[0],y:p[1]})),
-      index:1,health:100,maxHealth:100,ambushes:0,delivered:false
+      index:1,health:missionIndex===11?130:100,
+      maxHealth:missionIndex===11?130:100,ambushes:0,delivered:false
     }:null;
   }
   function drawNorwayTerrain(g){
@@ -317,6 +332,102 @@
       }
     }
   }
+  function drawDunkirkTerrain(g){
+    // A distinct 1940 French world: farmland, fields, hedges, village streets and coast.
+    // All hard-object placements stay away from the navigable mission route.
+    const beach=missionIndex===12;
+    if(beach){
+      // Channel water in the north-west, with wet sand and short breakers.
+      g.fillStyle='#345662';g.fillRect(6,6,238,84);
+      g.fillStyle='#63828b';g.fillRect(7,68,250,17);
+      g.fillStyle='#c3b38e';g.fillRect(6,84,235,13);
+      for(let i=0;i<18;i++){
+        const x=14+i*13,y=19+i%5*12;
+        g.fillStyle=i%2?'#83a9ae':'#b3c3b7';g.fillRect(x,y,11,2);
+      }
+      // Dunkirk beach obstacles and piles of abandoned kit.
+      for(const [x,y] of [[32,111],[81,133],[98,202],[243,84]]){
+        if(lineDistance(x,y,pathLine)<42)continue;
+        g.fillStyle='#4b554b';g.fillRect(x-11,y,21,3);g.fillRect(x-2,y-9,4,23);
+        g.fillStyle='#a59c81';g.fillRect(x-7,y-5,14,3);
+      }
+    }
+    const patches=missionIndex===9?56:missionIndex===10?28:90;
+    for(let i=0;i<patches;i++){
+      const x=(rng()*MW)|0,y=(rng()*MH)|0,w=19+(rng()*57)|0,h=12+(rng()*36)|0;
+      if(lineDistance(x,y,pathLine)<56||Math.abs(x-riverX(y))<58||
+         x+w>=MW-7||y+h>=MH-7)continue;
+      g.fillStyle=['#697958','#849370','#8d8b64','#727453','#586953'][i%5];
+      g.fillRect(x,y,w,h);
+      for(let j=4;j<h-2;j+=7){
+        g.fillStyle=i%2?'#a3a07a':'#8d9b6f';g.fillRect(x+3,y+j,w-7,2);
+      }
+      if(i%4===0){
+        // Low square French hedgerows; shallow shadows on the lower edge.
+        g.fillStyle='#334f36';g.fillRect(x,y+h-4,w,5);
+        g.fillStyle='#66835b';g.fillRect(x+3,y+h-5,w-6,2);
+      }
+    }
+    if(missionIndex===7||missionIndex===8||missionIndex===10){
+      const buildings=missionIndex===10?
+        [[55,196,70,47],[347,109,60,42],[676,110,67,51],[704,540,57,44]]:
+        [[66,146,72,52],[354,90,58,44],[742,125,59,45],[821,539,66,46]];
+      for(const [x,y,w,h] of buildings){
+        if(lineDistance(x+w/2,y+h/2,pathLine)<64)continue;
+        g.fillStyle='#3f5148';g.fillRect(x-5,y+h,w+9,9);
+        g.fillStyle='#a8a18b';g.fillRect(x,y,w,h);
+        g.fillStyle=missionIndex===10?'#684b3d':'#8b6348';g.fillRect(x-3,y-7,w+6,16);
+        for(let i=0;i<3;i++){
+          g.fillStyle='#b98462';g.fillRect(x+8+i*21,y-4,13,3);
+        }
+        for(const wx of [x+10,x+w-22]){
+          g.fillStyle='#465956';g.fillRect(wx,y+25,10,11);
+          g.fillStyle='#a9c4bd';g.fillRect(wx+2,y+27,6,7);
+        }
+        g.fillStyle='#5b5847';g.fillRect(x+w/2-5,y+h-20,13,20);
+        if(missionIndex===10){
+          // Damaged masonry and smoke-dark roof tiles.
+          g.fillStyle='#3b443e';g.fillRect(x+23,y-7,15,6);
+          g.fillStyle='#b0a58b';g.fillRect(x+w-21,y+h-11,19,8);
+        }
+      }
+    }
+    if(missionIndex===9){
+      // Canal-side stonework, towpaths and defensive posts.
+      for(let y=27;y<MH-17;y+=48){
+        const x=riverX(y);
+        if(y>290&&y<368)continue;
+        g.fillStyle='#b1a88e';g.fillRect(x-49,y,7,22);g.fillRect(x+42,y,7,22);
+        g.fillStyle='#5a5d52';g.fillRect(x-49,y+22,7,2);
+      }
+    }
+    if(missionIndex>=10){
+      // Shell craters, spent casings, wrecked carts: avoid making hidden obstacles.
+      for(let i=0;i<(missionIndex===12?65:38);i++){
+        const x=(rng()*MW)|0,y=(rng()*MH)|0;
+        if(lineDistance(x,y,pathLine)<43||Math.abs(x-riverX(y))<46)continue;
+        g.fillStyle='#494e41';g.fillRect(x-8,y-4,18,10);
+        g.fillStyle='#6c6d59';g.fillRect(x-5,y-3,13,6);
+        g.fillStyle='#a09775';g.fillRect(x-2,y+4,8,2);
+      }
+    }
+  }
+  function drawFrenchTree(g,t){
+    const {x,y,r,kind}=t;
+    // Rounded poplar / deciduous foliage, original pixel clusters and trunk.
+    g.fillStyle='#343d2c';g.fillRect(x-3,y-4,7,18);
+    g.fillStyle='#7c6b47';g.fillRect(x-1,y,3,12);
+    for(let dy=-r-8;dy<=r+2;dy+=4){
+      const half=Math.sqrt(Math.max(0,1-Math.pow((dy+4)/(r+9),2)))*(r+5);
+      for(let dx=-half;dx<=half;dx+=4){
+        if(((dx*dx+dy*dy+kind*7)|0)%19===0)continue;
+        const tone=dy<0?'#527046':dy<r*.5?'#3e6541':'#2e4d36';
+        g.fillStyle=(dx<0&&dy<0)?'#7b9061':tone;
+        g.fillRect(x+dx|0,y+dy|0,4,4);
+      }
+    }
+    g.fillStyle='#a9af78';g.fillRect(x-r*.3|0,y-r*.7|0,7,3);
+  }
   function generateTerrain(){
     seed=IS_WW2?(norwayLayout?.seed||19400415):missionIndex===3?942731:missionIndex===2?684291:378194;
     pathLine=IS_WW2&&norwayLayout?.route?norwayLayout.route.map(p=>({x:p[0],y:p[1]})):
@@ -336,7 +447,9 @@
     terrain=document.createElement('canvas');terrain.width=MW;terrain.height=MH;
     const g=terrain.getContext('2d');g.imageSmoothingEnabled=false;
     const norwayGround=['#a8b8b9','#a3b0b4','#c2cfd3','#7c999f','#839e9b','#90958e'];
-    g.fillStyle=IS_WW2?norwayGround[missionIndex-1]:
+    const frenchGround=['#707b54','#6a724d','#646e59','#827a64','#686d58','#b4a078'];
+    g.fillStyle=isDunkirk()?frenchGround[missionIndex-7]:
+      IS_WW2?norwayGround[missionIndex-1]:
       missionIndex===3?'#405e47':missionIndex===2?'#536b43':'#60793c';
     g.fillRect(0,0,MW,MH);
     // Each Norwegian assignment gets its own snowfall, stone and harbour palette.
@@ -348,7 +461,16 @@
       ['#819a95','#bdc8bd','#6e878b','#aabbb8','#7e8d83','#d6dcd2','#536c70'],
       ['#88908e','#bfc6bf','#6c7b7d','#a0acad','#6f8484','#d2d8d1','#536c6d']
     ];
-    const greens=IS_WW2?norwaySnow[missionIndex-1]:
+    const dunkirkColors=[
+      ['#88916a','#9da07a','#637554','#b3ac81','#525c43','#b7b797','#6b7350'],
+      ['#737d5a','#969578','#555c43','#aaa383','#7e836b','#a5a17c','#666e4b'],
+      ['#697d6a','#87928b','#586d68','#a4ac91','#636e59','#a9b5a7','#505c50'],
+      ['#837f65','#9b987e','#6b6b5a','#ac9b7d','#6c7558','#b2ae89','#756f58'],
+      ['#666b53','#807f63','#5c5b4e','#979277','#454d43','#ac9981','#737a69'],
+      ['#b19f78','#c8b388','#a18d6f','#d1bd8d','#a2a28e','#d8ceae','#94886b']
+    ];
+    const greens=isDunkirk()?dunkirkColors[missionIndex-7]:
+      IS_WW2?norwaySnow[missionIndex-1]:
       missionIndex===3?['#375841','#34523d','#4d6b4e','#395c48','#62815b','#294a39','#75916b']:
       missionIndex===2?['#536d44','#435e40','#677b47','#5b7341','#71824b','#3d5b39','#829253']:
       ['#6b843d','#546d35','#5b7539','#64813d','#779248','#4b682f','#819b50'];
@@ -356,11 +478,11 @@
       const rr=rng(),distance=lineDistance(x,y,pathLine);
       if(rr<.22||rr>.83){g.fillStyle=greens[(rng()*greens.length)|0];g.fillRect(x,y,4,4);}
       if(rr>.972&&distance>20){
-        g.fillStyle=IS_WW2?'#eef4ed':'#91a757';
+        g.fillStyle=isDunkirk()?'#9c9b78':IS_WW2?'#eef4ed':'#91a757';
         g.fillRect(x+1,y+2,1,2);g.fillRect(x+3,y,1,1);
       }
     }
-    if(IS_WW2){
+    if(IS_WW2&&!isDunkirk()){
       // Distant ledges and frozen rock, always outside the traversable track.
       for(let i=0;i<(missionIndex===3?235:140);i++){
         const x=(rng()*MW)|0,y=(rng()*MH)|0,span=8+(rng()*27)|0;
@@ -377,32 +499,35 @@
       }
     }
     if(IS_WW2&&missionIndex>1)drawNorwayTerrain(g);
-    // Terrain-aware dirt track: frozen gravel replaces brown jungle dust.
+    if(isDunkirk())drawDunkirkTerrain(g);
+    // French cobblestones, gravel and dusty lanes; preserve Norwegian snow trails.
     g.lineCap='round';g.lineJoin='round';
-    g.strokeStyle=IS_WW2?'#6f8181':'#394f2d';g.lineWidth=43;drawRoute(g,pathLine);
-    g.strokeStyle=IS_WW2?'#a3b1ad':'#846e41';g.lineWidth=31;drawRoute(g,pathLine);
-    g.strokeStyle=IS_WW2?'#cdd2ca':'#9a7e4a';g.lineWidth=24;drawRoute(g,pathLine);
+    g.strokeStyle=isDunkirk()?'#444b3c':IS_WW2?'#6f8181':'#394f2d';g.lineWidth=43;drawRoute(g,pathLine);
+    g.strokeStyle=isDunkirk()?'#877c63':IS_WW2?'#a3b1ad':'#846e41';g.lineWidth=31;drawRoute(g,pathLine);
+    g.strokeStyle=isDunkirk()?'#a79b7d':IS_WW2?'#cdd2ca':'#9a7e4a';g.lineWidth=24;drawRoute(g,pathLine);
     for(let i=0;i<4000;i++){
       const k=(rng()*(pathLine.length-1))|0, t=rng(),a=pathLine[k],b=pathLine[k+1];
       const xx=a.x+(b.x-a.x)*t+rnd(-17,17), yy=a.y+(b.y-a.y)*t+rnd(-17,17);
       if(xx>0&&xx<MW&&yy>0&&yy<MH&&Math.abs(xx-riverX(yy))>40){
-        g.fillStyle=IS_WW2?(rng()<.65?'#e2e2d8':'#667c7a'):(rng()<.65?'#ae8a50':'#695e35');
+        g.fillStyle=isDunkirk()?(rng()<.65?'#d5be8a':'#585c49'):
+          IS_WW2?(rng()<.65?'#e2e2d8':'#667c7a'):(rng()<.65?'#ae8a50':'#695e35');
         g.fillRect(xx|0,yy|0,1+rng()*3,1+rng()*2);
       }
     }
     // Original river, banks, ripples and timber bridge.
     for(let y=0;y<MH;y+=2){
       const x=riverX(y);
-      g.fillStyle=IS_WW2?'#667d80':'#445b30';g.fillRect(x-44,y,88,2);
-      g.fillStyle=IS_WW2?'#b2c8c4':'#c19e56';g.fillRect(x-36,y,72,2);
-      g.fillStyle=IS_WW2?'#31535c':'#263f44';g.fillRect(x-32,y,64,2);
-      g.fillStyle=IS_WW2?'#497a82':'#28576b';g.fillRect(x-27,y,54,2);
-      g.fillStyle=IS_WW2?'#6a979a':'#346d78';g.fillRect(x-19,y,38,2);
-      if(y%8===0){g.fillStyle=IS_WW2?'#c9e1db':'#609290';g.fillRect(x+rnd(-18,18),y,4+rng()*9,1);}
+      g.fillStyle=isDunkirk()?'#334c4c':IS_WW2?'#667d80':'#445b30';g.fillRect(x-44,y,88,2);
+      g.fillStyle=isDunkirk()?'#576d64':IS_WW2?'#b2c8c4':'#c19e56';g.fillRect(x-36,y,72,2);
+      g.fillStyle=isDunkirk()?'#315963':IS_WW2?'#31535c':'#263f44';g.fillRect(x-32,y,64,2);
+      g.fillStyle=isDunkirk()?'#4c7880':IS_WW2?'#497a82':'#28576b';g.fillRect(x-27,y,54,2);
+      g.fillStyle=isDunkirk()?'#78999a':IS_WW2?'#6a979a':'#346d78';g.fillRect(x-19,y,38,2);
+      if(y%8===0){g.fillStyle=isDunkirk()?'#94b1a7':IS_WW2?'#c9e1db':'#609290';g.fillRect(x+rnd(-18,18),y,4+rng()*9,1);}
     }
     for(let i=0;i<110;i++){
       const y=rnd(0,MH), x=riverX(y)+rnd(-24,24);
-      g.fillStyle=IS_WW2?(rng()<.7?'#b5d3ce':'#3b6770'):(rng()<.7?'#6e9e98':'#28505f');
+      g.fillStyle=isDunkirk()?(rng()<.7?'#88abb0':'#416877'):
+        IS_WW2?(rng()<.7?'#b5d3ce':'#3b6770'):(rng()<.7?'#6e9e98':'#28505f');
       g.fillRect(x|0,y|0,3+rng()*8,1);
     }
     const bx=riverX(329);
@@ -414,16 +539,25 @@
       g.fillStyle='#4f452b';g.fillRect(x+7,315,2,29);
       g.fillStyle='#cc9a5d';g.fillRect(x+1,316,5,2);
     }
-    g.fillStyle=IS_WW2?'#d6dad1':'#b8a16a';
+    g.fillStyle=isDunkirk()?'#b3af98':IS_WW2?'#d6dad1':'#b8a16a';
     g.fillRect(bx-60,307,120,4);g.fillRect(bx-60,348,120,4);
-    if(IS_WW2){
+    if(IS_WW2&&!isDunkirk()){
       for(let i=0;i<10;i++){g.fillStyle='#dbe5e1';g.fillRect(bx-50+i*11,315,9,3);}
+    }
+    if(isDunkirk()){
+      g.fillStyle='#535954';g.fillRect(bx-57,315,114,31);
+      for(let i=0;i<10;i++){g.fillStyle=i%2?'#8d9386':'#b5aa91';g.fillRect(bx-53+i*11,315,9,30);}
+      g.fillStyle='#c2ba9d';g.fillRect(bx-59,309,117,5);
+      g.fillRect(bx-59,344,117,5);
+      for(let i=0;i<7;i++){g.fillStyle='#4b5452';g.fillRect(bx-54+i*18,316,3,28);}
     }
     for(let i=0;i<7;i++){g.fillStyle='#4a4430';g.fillRect(bx-56+i*18,309,3,5);g.fillRect(bx-56+i*18,347,3,5);}
     // Border forest and pockets of trees. Keep vital route & bridge navigable.
     let attempts=0;
     const norwayTrees=[355,270,235,252,220,205];
-    const treesNeeded=IS_WW2?norwayTrees[missionIndex-1]:355;
+    const dunkirkTrees=[165,162,128,104,128,72];
+    const treesNeeded=isDunkirk()?dunkirkTrees[missionIndex-7]:
+      IS_WW2?norwayTrees[missionIndex-1]:355;
     while(trees.length<treesNeeded&&attempts<3500){
       attempts++;
       const x=rnd(10,MW-10),y=rnd(10,MH-10),r=rnd(10,19);
@@ -435,7 +569,9 @@
           ...(norwayLayout?.targets||[]).map(b=>[b[0]+b[2]/2,b[1]+b[3]/2]),
           ...(norwayLayout?.checkpoints||[]).map(p=>[p[0],p[1]]),
           ...(norwayLayout?.rescue?[norwayLayout.rescue]:[]),
-          ...(norwayLayout?.hold?[norwayLayout.hold]:[])];
+          ...(norwayLayout?.hold?[norwayLayout.hold]:[]),
+          ...(norwayLayout?.rally||[]).map(p=>[p[0],p[1]]),
+          ...(norwayLayout?.convoy||[])];
         if(safe.some(([sx,sy])=>dist(x,y,sx,sy)<66+r*.5))continue;
       }else if(missionIndex===3){
         if(dist(x,y,114,576)<85||dist(x,y,861,436)<90||dist(x,y,extraction.x,extraction.y)<70)continue;
@@ -450,11 +586,13 @@
     for(let i=0;i<180;i++){
       const x=rnd(13,MW-13),y=rnd(10,MH-10);
       if(inRiver(x,y)||lineDistance(x,y,pathLine)<16) continue;
-      g.fillStyle=IS_WW2?(rng()<.5?'#708b8c':'#e2ebe4'):(rng()<.5?'#3f6b2f':'#9aa34a');
+      g.fillStyle=isDunkirk()?(rng()<.5?'#566947':'#b8ad7a'):
+        IS_WW2?(rng()<.5?'#708b8c':'#e2ebe4'):(rng()<.5?'#3f6b2f':'#9aa34a');
       g.fillRect(x,y,2,5);g.fillRect(x+2,y+2,2,3);
       if(rng()<.2){g.fillStyle='#a3a18a';g.fillRect(x+1,y+2,3,2);}
     }
-    for(const t of trees)if(IS_WW2)drawPine(g,t);else drawTree(g,t);
+    for(const t of trees)if(isDunkirk())drawFrenchTree(g,t);
+      else if(IS_WW2)drawPine(g,t);else drawTree(g,t);
     // Wooden crates, tyre tracks and debris give the battlefield visual landmarks.
     for(const [x,y] of [[345,458],[747,278],[830,223],[454,384]]){
       g.fillStyle='#302e20';g.fillRect(x-10,y+4,20,9);
@@ -464,7 +602,8 @@
       g.beginPath();g.moveTo(x-8,y);g.lineTo(x+7,y+10);g.stroke();
     }
     // Darken world boundaries, visually separate the playable area.
-    g.fillStyle=IS_WW2?'#40595c':'#233526';g.fillRect(0,0,MW,6);g.fillRect(0,MH-6,MW,6);
+    g.fillStyle=isDunkirk()?'#344238':IS_WW2?'#40595c':'#233526';
+    g.fillRect(0,0,MW,6);g.fillRect(0,MH-6,MW,6);
     g.fillRect(0,0,6,MH);g.fillRect(MW-6,0,6,MH);
     buildNav();renderedMission=missionIndex;
   }
@@ -643,6 +782,8 @@
     cancelGesture();shotClock=0;score=0;kills=0;grenades=3;freeze=0;playerShots=0;
     if(IS_WW2&&missionIndex===4&&career.victories.some(v=>v.mission===3))grenades=4;
     if(IS_WW2&&missionIndex===6&&career.victories.some(v=>v.mission===5))grenades=5;
+    if(IS_WW2&&missionIndex===10&&career.victories.some(v=>v.mission===9))grenades=5;
+    if(IS_WW2&&missionIndex===12&&career.victories.some(v=>v.mission===11))grenades=5;
     reinforcementsSent=false;
     missionLossStart=career.fallen.length;
     afterAction={mission:missionIndex,fallen:[],promotions:[],newRecruits:[],score:0};
@@ -680,7 +821,13 @@
       missionIndex===3?'ESCORT THE AMMUNITION CART':
       missionIndex===4?'DESTROY BOTH FJORD GUNS':
       missionIndex===5?'SABOTAGE SIGNALS / RESCUE SAILORS':
-      'SILENCE GUNS / HOLD DOCKS / ESCAPE'):
+      missionIndex===6?'SILENCE GUNS / HOLD DOCKS / ESCAPE':
+      missionIndex===7?'FIND BOTH SECTIONS / REACH DUNKIRK':
+      missionIndex===8?'HOLD ROADBLOCK / FALL BACK':
+      missionIndex===9?'PROTECT THE CANAL BRIDGE':
+      missionIndex===10?'DEMOLISH ABANDONED ARMOUR':
+      missionIndex===11?'ESCORT THE WOUNDED TO SAFETY':
+      'DYNAMO: SILENCE GUNS / EVACUATE / EMBARK'):
       missionIndex===3?'DESTROY RADAR  /  REACH EXTRACTION':
       missionIndex===2?'DESTROY THE DEPOT  /  REACH EXTRACTION':'REACH THE RADIO BUNKER';
     messageTime=5.2;panHint=7;
@@ -1011,7 +1158,12 @@
     if(target.dead||target.hp>0)return;
     target.dead=true;score+=500;
     explodeBunker(target);
-    if(IS_WW2&&missionIndex>=2){
+    if(isDunkirk()){
+      const remain=norwayTargets.filter(b=>!b.dead).length;
+      if(missionIndex===10)flash(remain?'VEHICLE DISABLED - '+remain+' REMAIN':'ARMOUR DESTROYED! REACH THE COAST!',3);
+      if(missionIndex===12)flash(remain?'BEACH PILLBOX DOWN - '+remain+' REMAIN':'BEACH DEFENCES SILENCED! GATHER THE RETREATING TROOPS!',3);
+      sound('start');
+    }else if(IS_WW2&&missionIndex>=2){
       const remaining=norwayTargets.filter(b=>!b.dead).length;
       if(missionIndex===4){
         flash(remaining?'FIRST GUN SILENCED - DESTROY THE NEXT!':'FJORD BATTERIES SILENCED! REACH EXTRACTION!',3);
@@ -1079,6 +1231,7 @@
   }
   function norwayObjective(){
     if(!IS_WW2)return null;
+    if(isDunkirk())return dunkirkObjective();
     if(missionIndex===1)
       return bunker.dead?{x:extraction.x,y:extraction.y,label:'SECURE BEACH'}:
         {x:bunker.x+bunker.w/2,y:bunker.y+bunker.h/2,label:'COASTAL GUN'};
@@ -1101,7 +1254,156 @@
     return {x:extraction.x,y:extraction.y,
       label:missionIndex===6?'BOARD FINAL SHIP':'REACH EXTRACTION'};
   }
+  function dunkirkObjective(){
+    if(missionIndex===7){
+      const p=norwayLayout.rally[dunkirkRallies];
+      return p?{x:p[0],y:p[1],label:'FIND SECTION '+(dunkirkRallies+1)+'/2'}:
+        {x:extraction.x,y:extraction.y,label:'ESCORT TO DUNKIRK'};
+    }
+    if(missionIndex===8){
+      const p=norwayLayout.hold;
+      return norwayHoldStarted&&norwayHold<=0?
+        {x:extraction.x,y:extraction.y,label:'FALL BACK TO THE COAST'}:
+        {x:p[0],y:p[1],label:norwayHoldStarted?'HOLD ROAD '+Math.ceil(norwayHold)+'S':'DEFEND THE ROADBLOCK'};
+    }
+    if(missionIndex===9){
+      const p=norwayLayout.hold;
+      return norwayHoldStarted&&norwayHold<=0?
+        {x:extraction.x,y:extraction.y,label:'RETREAT FROM BRIDGE'}:
+        {x:p[0],y:p[1],label:norwayHoldStarted?'KEEP BRIDGE '+Math.ceil(norwayHold)+'S':'SECURE THE CANAL BRIDGE'};
+    }
+    if(missionIndex===11)
+      return norwayConvoy?{x:norwayConvoy.x,y:norwayConvoy.y,
+        label:'ESCORT WOUNDED '+Math.ceil(norwayConvoy.health)+' HP'}:null;
+    const active=norwayTargets.find(t=>!t.dead);
+    if(active)return {x:active.x+active.w/2,y:active.y+active.h/2,
+      label:missionIndex===10?'DESTROY VEHICLE '+(active.id+1)+'/3':
+        'DISABLE PILLBOX '+(active.id+1)+'/3'};
+    if(missionIndex===12){
+      const p=norwayLayout.rally[dunkirkRallies];
+      if(p)return {x:p[0],y:p[1],label:'GATHER COLUMN '+(dunkirkRallies+1)+'/2'};
+      if(norwayHold>0)return {x:norwayLayout.hold[0],y:norwayLayout.hold[1],
+        label:'HOLD BEACH '+Math.ceil(norwayHold)+'S'};
+      return {x:extraction.x,y:extraction.y,label:'BOARD LAST TRANSPORT'};
+    }
+    return {x:extraction.x,y:extraction.y,label:'REACH THE COAST'};
+  }
+  function spawnDunkirkWave(){
+    if(!isDunkirk()||!norwayLayout?.wavePoints||norwayWaves>=norwayWaveLimit)return;
+    const points=norwayLayout.wavePoints[norwayWaves%norwayLayout.wavePoints.length];
+    const defend=norwayLayout.hold||[extraction.x,extraction.y];
+    spawnNorwayEnemies(points,defend);
+    norwayWaves++;
+    flash('COUNTERATTACK '+norwayWaves+' - DEFEND THE POSITION!',2.8);
+  }
+  function dunkirkStartHold(seconds){
+    norwayHoldStarted=true;norwayHold=seconds;
+    dunkirkPhase='defend';norwayWaves=0;
+    spawnDunkirkWave();
+    flash('HOLD YOUR POSITION! '+seconds+' SECONDS',3);
+  }
+  function dunkirkHoldTick(dt,protect){
+    const [x,y]=norwayLayout.hold;
+    const nearby=enemies.filter(e=>e.alive&&dist(e.x,e.y,x,y)<80).length;
+    if(protect==='bridge')dunkirkBridgeHp=Math.max(0,dunkirkBridgeHp-dt*nearby*1.5);
+    if(protect==='road')dunkirkBarrierHp=Math.max(0,dunkirkBarrierHp-dt*nearby*1.9);
+    if((protect==='bridge'&&dunkirkBridgeHp<=0)||(protect==='road'&&dunkirkBarrierHp<=0)){
+      norwayFailure=protect==='bridge'?'CANAL BRIDGE DESTROYED':'ROADBLOCK OVERRUN';
+      sound('fail');startAfterAction('lost');return;
+    }
+    if(norwayHold>0&&norwayAliveAt(x,y,102)){
+      norwayHold=Math.max(0,norwayHold-dt);
+      if(norwayHold>0&&norwayHold<=norwayLayout.holdSeconds-norwayWaves*8)
+        spawnDunkirkWave();
+      if(protect==='bridge')
+        dunkirkColumns=Math.min(3,Math.floor((norwayLayout.holdSeconds-norwayHold)/
+          (norwayLayout.holdSeconds/3)));
+      if(norwayHold===0){
+        dunkirkPhase='extract';dunkirkColumns=protect==='bridge'?3:dunkirkColumns;
+        score+=550;flash(protect==='bridge'?'ALL COLUMNS ACROSS! RETREAT!':
+          'THE REARGUARD CAN FALL BACK NOW!',3.5);
+      }
+    }
+  }
+  function updateDunkirk(dt){
+    if(missionIndex===7){
+      const p=norwayLayout.rally[dunkirkRallies];
+      if(p&&norwayAliveAt(p[0],p[1],p[2])&&norwayClearAt(p[0],p[1],63)){
+        dunkirkRallies++;score+=250;
+        addParticles(p[0],p[1],'#cbdba4',20,40,'spark');
+        flash('BRITISH SECTION '+dunkirkRallies+' REJOINED!',2.5);
+        if(dunkirkRallies===2)spawnNorwayEnemies([[832,309],[864,252]],[extraction.x,extraction.y]);
+      }
+      if(dunkirkRallies===2&&norwayAliveAt(extraction.x,extraction.y,extraction.r))
+        finishMission();
+    }else if(missionIndex===8||missionIndex===9){
+      const [x,y]=norwayLayout.hold;
+      if(!norwayHoldStarted&&norwayAliveAt(x,y,46)&&norwayClearAt(x,y,62))
+        dunkirkStartHold(norwayLayout.holdSeconds);
+      if(norwayHoldStarted&&norwayHold>0)
+        dunkirkHoldTick(dt,missionIndex===9?'bridge':'road');
+      if(state!=='playing')return;
+      if(norwayHoldStarted&&norwayHold===0&&
+         norwayAliveAt(extraction.x,extraction.y,extraction.r))
+        finishMission();
+    }else if(missionIndex===10){
+      if(norwayAllTargetsDead()&&norwayAliveAt(extraction.x,extraction.y,extraction.r))
+        finishMission();
+    }else if(missionIndex===11&&norwayConvoy){
+      const cart=norwayConvoy;
+      const guards=enemies.filter(e=>e.alive&&dist(e.x,e.y,cart.x,cart.y)<86).length;
+      cart.health=Math.max(0,cart.health-dt*guards*2.6);
+      if(cart.health===0){
+        norwayFailure='WOUNDED TRANSPORT LOST';sound('fail');startAfterAction('lost');return;
+      }
+      if(norwayAliveAt(cart.x,cart.y,116)&&guards<3&&!cart.delivered){
+        const dest=cart.waypoints[cart.index];
+        if(dest){
+          const d=dist(cart.x,cart.y,dest.x,dest.y),move=Math.min(d,dt*32);
+          if(d>0){cart.x+=(dest.x-cart.x)*move/d;cart.y+=(dest.y-cart.y)*move/d;}
+          if(d<=5||move>=d)cart.index++;
+        }else{
+          cart.delivered=true;score+=550;
+          flash('WOUNDED REACH THE COAST!',3);finishMission();return;
+        }
+        if(cart.index>=4&&cart.ambushes===0){
+          cart.ambushes=1;spawnNorwayEnemies([[505,291],[546,419]],[cart.x,cart.y]);
+          flash('GERMAN AMBUSH! COVER THE WOUNDED!',3);
+        }
+        if(cart.index>=8&&cart.ambushes===1){
+          cart.ambushes=2;spawnNorwayEnemies([[861,279],[802,330]],[cart.x,cart.y]);
+          flash('AMBUSH NEAR THE COAST!',3);
+        }
+      }
+    }else if(missionIndex===12){
+      if(!norwayAllTargetsDead())return;
+      const p=norwayLayout.rally[dunkirkRallies];
+      if(p&&norwayAliveAt(p[0],p[1],p[2])&&norwayClearAt(p[0],p[1],65)){
+        dunkirkRallies++;score+=230;
+        flash('COLUMN '+dunkirkRallies+' READY TO EMBARK!',3);
+        if(dunkirkRallies===2){
+          dunkirkStartHold(norwayLayout.holdSeconds);
+          dunkirkPhase='beach-defence';
+        }
+      }
+      if(norwayHoldStarted&&norwayHold>0){
+        const [x,y]=norwayLayout.hold;
+        if(norwayAliveAt(x,y,105)){
+          norwayHold=Math.max(0,norwayHold-dt);
+          if(norwayHold>0&&norwayHold<=norwayLayout.holdSeconds-norwayWaves*10)
+            spawnDunkirkWave();
+          if(norwayHold===0){
+            dunkirkPhase='embark';score+=800;
+            flash('OPERATION DYNAMO - BOARD THE FINAL SHIP!',4);
+          }
+        }
+      }
+      if(norwayHoldStarted&&norwayHold===0&&
+         norwayAliveAt(extraction.x,extraction.y,extraction.r))finishMission();
+    }
+  }
   function updateNorway(dt){
+    if(isDunkirk()){updateDunkirk(dt);return;}
     if(missionIndex===1){
       if(bunker.dead&&norwayAliveAt(extraction.x,extraction.y,extraction.r))finishMission();
       return;
@@ -1395,6 +1697,46 @@
     if(b.kind==='none')return;
     const x=b.x,y=b.y,w=b.w,h=b.h;
     rect(x-7,y+h-1,w+13,11,IS_WW2?'#48595d':'#26301f');
+    if(b.kind==='armour'){
+      // Original top-down tank/armoured truck sprite, track links and turret.
+      if(b.dead){
+        rect(x-4,y-4,w+8,h+8,'#3d4140');
+        rect(x,y,w,h,'#656153');
+        for(let i=0;i<11;i++)rect(x+(i*13)%w,y+(i*7)%h,6,4,i%2?'#ad8f69':'#343e38');
+        rect(x+w/2-9,y+4,18,h-8,'#34352f');
+        return;
+      }
+      rect(x-5,y-4,w+10,h+8,'#222b27');
+      for(let i=0;i<8;i++){
+        const tx=x-3+i*(w+3)/8;
+        rect(tx,y-3,4,7,'#474d40');rect(tx,y+h-4,4,7,'#474d40');
+      }
+      rect(x,y+5,w,h-10,'#676a48');
+      rect(x+6,y+6,w-12,h-12,'#8d8960');
+      rect(x+w/2-11,y+8,22,h-16,'#4b5a44');
+      rect(x+w/2-5,y+8,10,8,'#b2a178');
+      rect(x+w-5,y+h/2-3,22,6,'#3c4740');
+      rect(x+w+12,y+h/2-5,4,10,'#78836b');
+      if(b.hp<b.maxHp)rect(x,y-13,w*clamp(b.hp/b.maxHp,0,1),4,'#e6be66');
+      return;
+    }
+    if(b.kind==='pillbox'){
+      if(b.dead){
+        rect(x-7,y-6,w+14,h+13,'#51534c');
+        rect(x+5,y+9,w-10,h-19,'#2c3b39');
+        for(let i=0;i<17;i++)rect(x+(i*17)%w,y+(i*11)%h,4+i%4,3,i%2?'#8a8474':'#474941');
+        return;
+      }
+      rect(x-7,y-7,w+14,h+14,'#303e38');
+      rect(x,y,w,h,'#838777');
+      rect(x+6,y+4,w-12,h-8,'#a7a391');
+      for(let i=0;i<6;i++)rect(x+4+i*10,y+3,7,4,'#ccc2a4');
+      rect(x+13,y+17,w-26,11,'#273b38');
+      rect(x+17,y+20,w-34,4,'#121d1c');
+      rect(x-10,y+18,13,14,'#646958');
+      if(b.hp<b.maxHp)rect(x+3,y-13,(w-6)*clamp(b.hp/b.maxHp,0,1),4,'#f0c675');
+      return;
+    }
     if(b.kind==='signals'){
       if(b.dead){
         rect(x-5,y-5,w+10,h+10,'#515d5b');
@@ -1529,8 +1871,14 @@
   }
   function drawExtraction(){
     if(!IS_WW2&&missionIndex===1)return;
-    if(IS_WW2&&(missionIndex===2||missionIndex===3))return;
-    const active=IS_WW2?(missionIndex===1?bunker.dead:
+    if(IS_WW2&&(missionIndex===2||missionIndex===3||missionIndex===11))return;
+    const dunkirkReady=isDunkirk()?(missionIndex===7?dunkirkRallies===2:
+      missionIndex===8||missionIndex===9?norwayHoldStarted&&norwayHold===0:
+      missionIndex===10?norwayAllTargetsDead():
+      missionIndex===12?norwayAllTargetsDead()&&dunkirkRallies===2&&
+        norwayHoldStarted&&norwayHold===0:false):false;
+    const active=IS_WW2?(isDunkirk()?dunkirkReady:
+      missionIndex===1?bunker.dead:
       norwayAllTargetsDead()&&(missionIndex!==5||norwayRescued)&&
       (missionIndex!==6||norwayHoldStarted&&norwayHold<=0)):bunker.dead;
     const {x,y}=extraction;
@@ -1550,13 +1898,120 @@
         rect(x+12,y-25,18,3,'#eef1e9');
       }
     }
-    text(IS_WW2?(missionIndex===6?(active?'BOARD':'FINAL SHIP'):
+    text(IS_WW2?(missionIndex===6||missionIndex===12?
+      (active?'BOARD SHIP':'FINAL TRANSPORT'):
+      isDunkirk()?(active?'EVACUATE':'EVAC POINT'):
       active?'EXTRACT':'LANDING POINT'):(active?'EXTRACT':'LANDING ZONE'),
       x,y+25,8,active?C.gold:C.mint,'center');
     ctx.restore();
   }
+  function drawDunkirkObjects(){
+    // Waypoints are world-space: move with the battlefield camera and scale.
+    if((missionIndex===7||missionIndex===12)&&norwayLayout.rally){
+      norwayLayout.rally.forEach((p,i)=>{
+        const [x,y,r,label]=p,done=i<dunkirkRallies;
+        ctx.save();ctx.strokeStyle=done?'#b3cfab':i===dunkirkRallies?C.gold:'#839085';
+        ctx.globalAlpha=done?.4:.82;ctx.lineWidth=2;
+        ctx.strokeRect(x-r/2,y-r/2,r,r);
+        ctx.restore();
+        rect(x+7,y-22,2,22,'#434c43');
+        rect(x+9,y-22,19,12,done?'#6d9874':i===dunkirkRallies?'#d0a65a':'#61746c');
+        if(!done){
+          for(const ox of [-11,10]){
+            rect(x+ox-3,y-8,6,7,'#baa386');
+            rect(x+ox-6,y-1,11,13,'#777e64');
+            rect(x+ox-5,y+11,4,5,'#343d36');
+          }
+        }
+        text(done?'SAFE':label,x,y+23,8,done?C.mint:C.gold,'center');
+      });
+    }
+    if(missionIndex===8||missionIndex===9||missionIndex===12){
+      const [x,y]=norwayLayout.hold;
+      const road=missionIndex===8,bridge=missionIndex===9;
+      if(road){
+        // Barricade with staggered sandbags, timber and improvised signs.
+        rect(x-44,y+12,89,9,'#423e2e');
+        for(let i=0;i<9;i++){
+          rect(x-41+i*10,y+7,10,8,i%2?'#8d8665':'#b0a180');
+          rect(x-36+i*10,y+1,8,6,i%2?'#c1af7e':'#797b5e');
+        }
+        rect(x+27,y-19,4,24,'#403f36');
+        rect(x+31,y-18,34,12,'#c0b28e');
+        text('HALT',x+48,y-15,9,'#4e4234','center');
+      }
+      const duration=norwayLayout.holdSeconds;
+      if(norwayHoldStarted&&norwayHold>0){
+        ctx.save();ctx.strokeStyle=C.gold;ctx.lineWidth=2;
+        ctx.globalAlpha=.58+Math.sin(clock*3.1)*.18;
+        ctx.beginPath();ctx.arc(x,y,51,0,Math.PI*2);ctx.stroke();ctx.restore();
+        rect(x-31,y-35,63,6,'#263029');
+        rect(x-29,y-33,59*(1-norwayHold/duration),3,'#eccc6c');
+        text('HOLD '+Math.ceil(norwayHold)+'S',x,y+32,10,C.gold,'center');
+      }else if(norwayHoldStarted){
+        text('POSITION SECURED',x,y+32,9,C.mint,'center');
+      }else if(road||bridge){
+        text(road?'DEFEND ROAD':'DEFEND BRIDGE',x,y+27,9,C.gold,'center');
+      }
+      if(road||bridge){
+        const hp=road?dunkirkBarrierHp:dunkirkBridgeHp;
+        rect(x-28,y-47,58,6,'#27332c');
+        rect(x-27,y-46,56*hp/100,4,hp<36?'#e88c6c':'#b5c47f');
+        text(road?'ROAD':'BRIDGE',x,y-62,8,C.cream,'center');
+      }
+      if(bridge){
+        // Small blue-grey British rearguard columns crossing the canal.
+        for(let i=0;i<dunkirkColumns;i++){
+          for(let j=0;j<3;j++){
+            const px=riverX(329)-33+i*25+j*6,py=324+(j%2)*11;
+            rect(px,py,4,6,'#717b68');rect(px+1,py-3,3,4,'#c3ad87');
+          }
+        }
+      }
+    }
+    if(missionIndex===11&&norwayConvoy){
+      const c=norwayConvoy,{x,y}=c;
+      // Top-down British ambulance / wounded transport with canvas canopy.
+      rect(x-24,y-12,47,25,'#38413b');
+      rect(x-21,y-10,41,20,'#9c957b');
+      rect(x-12,y-8,23,17,'#c5c6ac');
+      rect(x-8,y-4,15,9,'#a0a78f');
+      rect(x-3,y-7,5,15,'#a24742');
+      rect(x-8,y-2,15,5,'#a24742');
+      for(const dx of [-18,13]){
+        rect(x+dx,y-15,10,6,'#333c38');
+        rect(x+dx,y+10,10,6,'#333c38');
+      }
+      rect(x+23,y-7,12,15,'#66746d');
+      rect(x-24,y-29,48,5,'#273329');
+      rect(x-23,y-28,46*c.health/c.maxHealth,3,c.health>45?'#a4ca91':'#df8067');
+      text('WOUNDED '+Math.ceil(c.health)+' HP',x,y+19,8,C.sand,'center');
+    }
+    if(missionIndex===10){
+      // Fuel drums and wheel tracks make the demolition site identifiable.
+      for(const b of norwayTargets){
+        if(!b.dead){rect(b.x+b.w+12,b.y+5,12,17,'#7f5346');
+          rect(b.x+b.w+14,b.y+7,8,3,'#bc8863');}
+      }
+    }
+    if(missionIndex===12){
+      // Original broad-deck evacuation transport, wake, ramp and deck lights.
+      const sx=extraction.x,sy=extraction.y-58;
+      rect(sx-60,sy,115,32,'#263f4b');
+      rect(sx-54,sy-7,104,37,'#4e6770');
+      rect(sx-41,sy-10,80,28,'#9c9d91');
+      rect(sx-27,sy-23,54,18,'#627b80');
+      rect(sx-15,sy-29,8,9,'#425b62');
+      for(let i=0;i<5;i++)rect(sx-36+i*17,sy+5,10,7,'#374f57');
+      rect(sx-11,sy+28,25,21,'#6c6c5a');
+      for(let i=0;i<6;i++)rect(sx-65+i*23,sy+33,12,2,'#a7c0ba');
+      if(norwayHoldStarted&&norwayHold===0)
+        text('LAST BOAT READY',sx,sy+44,10,C.gold,'center');
+    }
+  }
   function drawNorwayObjects(){
     if(!IS_WW2)return;
+    if(isDunkirk()){drawDunkirkObjects();return;}
     if(missionIndex===2){
       norwayLayout.checkpoints.forEach((cp,i)=>{
         const [x,y,r,label]=cp,secured=i<norwayCheckpoint;
@@ -1757,7 +2212,8 @@
     rect(0,0,HUD,WH,C.hud);rect(HUD-3,0,3,WH,'#0e150e');
     rect(0,0,HUD,38,'#101b15');rect(0,38,HUD,3,'#728246');
     text('GREEN DAWN',8,7,13,C.sand);
-    text(IS_WW2?String(missionIndex).padStart(2,'0')+'  NORWAY':
+    text(IS_WW2?String(missionIndex).padStart(2,'0')+
+      (isDunkirk()?'  FRANCE':'  NORWAY'):
       String(missionIndex).padStart(2,'0')+'  '+operationName(missionIndex),
       8,24,7,C.mint);
     if(!split){
@@ -1991,7 +2447,8 @@
     text('GREEN',x,37,34,C.cream,'center');
     text('DAWN',x,74,34,C.gold,'center');
     rect(x-105,112,210,3,'#c6aa65');
-    text(IS_WW2?'BRITISH WWII / NORWAY 1940':'ONE WAY CAMPAIGN',x,124,11,C.mint,'center');
+    text(IS_WW2?(isDunkirk()?'BRITISH WWII / FRANCE 1940':
+      'BRITISH WWII / NORWAY 1940'):'ONE WAY CAMPAIGN',x,124,11,C.mint,'center');
     if(career.nextMission<=CAMPAIGN_MISSIONS){
       text('MISSION '+String(career.nextMission).padStart(2,'0')+'  '+operationName(career.nextMission),x,144,10,C.cream,'center');
       const deploying=deployment().length;
@@ -2003,9 +2460,9 @@
       memorialStart={x:rosterStart.x+third+4,y:223,w:third,h:30};
       backupStart={x:memorialStart.x+third+4,y:223,w:bw-2*third-8,h:30};
     }else{
-      text(IS_WW2?'NORWAY EVACUATION COMPLETE':'THREE MISSIONS COMPLETE',
+      text(IS_WW2?'DUNKIRK EVACUATION COMPLETE':'THREE MISSIONS COMPLETE',
         x,146,IS_WW2?11:12,C.gold,'center');
-      text(IS_WW2?'MISSION 07 - DUNKIRK COMING SOON':'MISSION 04  -  COMING SOON',
+      text(IS_WW2?'MISSION 13 - DESERT CAMPAIGN NEXT':'MISSION 04  -  COMING SOON',
         x,166,10,C.mint,'center');
       titleStart={x:0,y:0,w:0,h:0};
       const third=Math.floor((bw-8)/3);
@@ -2029,7 +2486,7 @@
   function backupPayload(){
     return JSON.stringify({
       format:BACKUP_FORMAT,version:BACKUP_VERSION,createdAt:new Date().toISOString(),
-      gameVersion:'0.14.0',career:JSON.parse(JSON.stringify(career)),
+      gameVersion:'0.15.0',career:JSON.parse(JSON.stringify(career)),
       settings:{audioOn}
     },null,2);
   }
@@ -2562,6 +3019,21 @@
       rescued:norwayRescued,holdRemaining:norwayHold,
       holding:norwayHoldStarted,waves:norwayWaves,
       waveLimit:norwayWaveLimit,failed:norwayFailure
+    }:null;},
+    get dunkirk(){return isDunkirk()?{
+      mission:missionIndex,kind:norwayLayout.kind,title:operationName(missionIndex),
+      objective:dunkirkObjective(),rallies:dunkirkRallies,
+      rallyTotal:norwayLayout.rally?.length||0,
+      targetCount:norwayTargets.length,
+      targets:norwayTargets.map(t=>({id:t.id,dead:t.dead,hp:t.hp,kind:t.kind,x:t.x,y:t.y})),
+      holdStarted:norwayHoldStarted,holdRemaining:norwayHold,
+      waves:norwayWaves,waveLimit:norwayWaveLimit,
+      bridgeHp:dunkirkBridgeHp,roadblockHp:dunkirkBarrierHp,
+      crossings:dunkirkColumns,phase:dunkirkPhase,
+      convoy:norwayConvoy?{x:norwayConvoy.x,y:norwayConvoy.y,
+        hp:norwayConvoy.health,waypoint:norwayConvoy.index,
+        ambushes:norwayConvoy.ambushes,delivered:norwayConvoy.delivered}:null,
+      failed:norwayFailure
     }:null;},
     get controls(){return {pending:!!(gesture&&!gesture.firing),firing:!!(gesture&&gesture.firing),shotsFired:playerShots,aim:{...aim},holdMs:HOLD_TO_FIRE_MS};},
     get roster(){return soldiers.map(s=>({name:s.name,careerId:s.careerId,rank:s.rank,x:s.x,y:s.y,alive:s.alive,team:s.team,followId:s.followId??null,followGap:s.followGap||0,trailPoints:s.trail?.length||0,followGoal:s.followGoal||null,pathLength:s.path.length,destination:s.path.at(-1)||null}));},

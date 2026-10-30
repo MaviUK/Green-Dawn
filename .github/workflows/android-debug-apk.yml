@@ -9,6 +9,7 @@ on:
       - 'ww2-campaign.html'
       - 'ww2-campaign-data.js'
       - 'norway-missions.js'
+      - 'dunkirk-missions.js'
       - 'tests/**'
       - '.github/workflows/android-debug-apk.yml'
   workflow_dispatch:
@@ -30,6 +31,7 @@ jobs:
           cmp ww2-campaign.html android/app/src/main/assets/ww2-campaign.html
           cmp ww2-campaign-data.js android/app/src/main/assets/ww2-campaign-data.js
           cmp norway-missions.js android/app/src/main/assets/norway-missions.js
+          cmp dunkirk-missions.js android/app/src/main/assets/dunkirk-missions.js
           grep -q 'GREEN_DAWN_TEST' android/app/src/main/assets/index.html
           grep -q 'JUNGLE ASSAULT' android/app/src/main/assets/index.html
       - name: Test campaign and mission progression
@@ -103,13 +105,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Campaign-v0.14-debug.apk
-          if gh release view v0.14.0 >/dev/null 2>&1; then
-            gh release upload v0.14.0 GreenDawn-Campaign-v0.14-debug.apk --clobber
+          cp android/app/build/outputs/apk/debug/app-debug.apk GreenDawn-Campaign-v0.15-debug.apk
+          if gh release view v0.15.0 >/dev/null 2>&1; then
+            gh release upload v0.15.0 GreenDawn-Campaign-v0.15-debug.apk --clobber
           else
-            gh release create v0.14.0 GreenDawn-Campaign-v0.14-debug.apk \
+            gh release create v0.15.0 GreenDawn-Campaign-v0.15-debug.apk \
               --target "$GITHUB_SHA" \
-              --title "Green Dawn v0.14.0 — Android test build" \
-              --notes "Green Dawn v0.14 finishes the full six-mission NORWAY 1940 chapter. New playable: 002 Mountain Patrol with three sequential ridge captures, 003 The Supply Route with a moving and damageable ammunition cart plus ambushes, 004 Guns Above the Fjord with two distinct artillery positions, 005 Narvik Harbour with signal sabotage and sailor rescue, and 006 Last Ships from Norway: three defences, a 35-second pier defence under enemy counterattacks, then boarding the evacuation ship. Distinct frozen mountain, blizzard, fjord cliff, harbour and siege maps with original pixel art. All six levels auto-unlock in order with permanent soldier promotions, casualties, mission-only ceremony and no replay. Prior v0.13 Norway 001 saves are kept via the same WWII save key; jungle campaign remains separate and unchanged. Remaining 007-100 levels stay locked. Automated 24-test regression suite checks mission completion, backups and preservation. Note: debug APK signing is temporary unless private GitHub signing secrets are configured, so uninstalling the previous app erases its local saves." \
+              --title "Green Dawn v0.15.0 — Android test build" \
+              --notes "Green Dawn v0.15 adds the complete six-level DUNKIRK 1940 campaign (Missions 007-012) after the existing fully playable Norway chapter (001-006). Each new scenario has distinct French countryside, canal, village or beach pixel art: Road to Dunkirk rescues two cut-off sections; Holding the Line defends a destructible roadblock; The Canal Bridge protects three withdrawing columns and its bridge; Abandoned Armour demolishes three vehicles; The Last Road escorts a damageable ambulance through ambushes; Operation Dynamo is a long multi-stage beach evacuation involving three pillboxes, two column rallies, a 47-second defensive stand and final ship boarding. Permanent British soldier careers, promotions, casualties, historical memorial, no replay and separate WWII / jungle backups are preserved with no save-key migration. The full 100-level map now unlocks missions 001-012; missions 013-100 remain planned. All campaign regression tests run before signed APK publication. Warning: Android debug APK upgrade signing may differ until stable keys are configured. Never uninstall a version if its local career is not backed up." \
               --prerelease
           fi

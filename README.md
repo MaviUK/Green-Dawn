@@ -1,50 +1,57 @@
-# GREEN DAWN v0.14 — Norway 1940, All Six Missions
+# GREEN DAWN v0.15 — Norway and Dunkirk (12 Playable Missions)
 
-Green Dawn is an original 16-bit-inspired offline squad tactics game for Android, with permanent soldiers, promotions, casualties, and a remembrance ceremony after each mission.
+An **original** 16-bit-inspired offline squad tactics game for Android. The planned 100-mission WWII route now has **12 playable missions**, divided into two full six-mission chapters based on the British Army's historical campaign settings. Missions 013–100 remain planned and locked.
 
-**[Download Android v0.14 APK](https://github.com/MaviUK/Green-Dawn/releases/download/v0.14.0/GreenDawn-Campaign-v0.14-debug.apk)**
+**[Download Android v0.15 APK](https://github.com/MaviUK/Green-Dawn/releases/download/v0.15.0/GreenDawn-Campaign-v0.15-debug.apk)**
 
-## NOW PLAYABLE: All Six Norway Missions
+## Norway 1940 — Missions 001–006 (unchanged and playable)
 
-The WWII chapter is inspired by the British Army's real Norway campaign in spring 1940. Specific squad assignments are original fiction, and the historical campaign ended in an Allied withdrawal.
+| # | Mission | Objective |
+|---|---|---|
+| 001 | Cold Landing | Silence the fjord gun and secure the landing area |
+| 002 | Mountain Patrol | Clear three fortified ridge positions |
+| 003 | The Supply Route | Protect a moving ammunition convoy through ambushes |
+| 004 | Guns Above the Fjord | Destroy two coastal batteries and escape |
+| 005 | Narvik Harbour | Disable communications, rescue sailors and evacuate |
+| 006 | Last Ships from Norway | Destroy three fortifications, defend the evacuation pier and board ship |
 
-| # | Operation | How it plays |
-|---|-----------|--------------|
-| 001 | Cold Landing | Silence a coastal gun, then secure the landing point. Existing Level 001 stays compatible. |
-| 002 | Mountain Patrol | Clear **three separate ridge checkpoints** in order. Stand at each marked position after neutralising nearby guards. |
-| 003 | The Supply Route | Protect a **moving ammunition cart** across a snowy pass. Stay near it to keep it moving. Enemies can damage the cart; two ambushes arrive as it advances. |
-| 004 | Guns Above the Fjord | Destroy **both** distinct gun positions, then reach the extraction area. Completing the supply mission gives you a bonus grenade. |
-| 005 | Narvik Harbour | Destroy the radio hut, clear the guards, **rescue stranded sailors** at the marked rally, and evacuate at the harbour. |
-| 006 | Last Ships from Norway | A **longer multi-stage battle**: destroy three defended positions, hold the evacuation pier for **35 seconds** while reinforcements counterattack, and board the ship. Extra grenades come from the harbour mission. Taking no casualties in Mission 004 reduces the number of enemy counterattack waves. |
+All pre-existing Norway progress remains in **green-dawn-ww2-campaign-v1**, including cleared battles, living recruits, promotions, permanently fallen soldiers and historical memorial records. Finishing Norway automatically unlocks Mission 007. Norway operations never become replayable.
 
-The six maps reuse the proven tap-to-move / hold-to-fire controls but have distinct snowy mountain, blizzard, cliff, harbour and fortified-evacuation environments. Original pixel-art details include fir trees, icy bridges, wind-carved ridges, signal masts, supply cart, ship and dock.
+## France 1940 — Dunkirk Campaign — NEW Missions 007–012
 
-**No level selection or replay.** Clearing Norway moves your career to **Mission 007 — Dunkirk**, which appears on the map but stays locked until built. The full Road to Berlin map contains **100 planned missions**, only the first six playable for now.
+| # | Mission | Actual gameplay |
+|---|---|---|
+| **007** | **Road to Dunkirk** | Find two isolated British sections, clear nearby German guards, rally both units, and escort them toward evacuation. |
+| **008** | **Holding the Line** | Defend a roadblock for **30 seconds**, keep the barricade intact through attacking waves, then withdraw. |
+| **009** | **The Canal Bridge** | Protect a canal bridge for **32 seconds** while three separate withdrawing columns cross. Stop enemies damaging the bridge and reach the exit. |
+| **010** | **Abandoned Armour** | Demolish three enemy-bound abandoned armoured vehicles in a French village, then extract. Mission 009 grants bonus explosives. |
+| **011** | **The Last Road** | Protect a **moving wounded-transport truck** across the countryside. Stay close, defeat ambushes and deliver the wounded safely; losing the truck fails the operation. |
+| **012** | **Operation Dynamo** | A longer multi-stage evacuation: destroy three pillboxes, organise two retreating columns, hold the beach for **47 seconds** against reinforcements and board the final vessel. Completing Mission 011 grants bonus grenades. A casualty-free Mission 010 reduces enemy waves in the finale. |
 
-## Career and Existing Saves
+The French chapter is visually distinct from Norway: pixel-art farms, hedgerows, villages, tanks, roadblocks, canals with a stone bridge, damaged roads, shoreline obstacles, sandy beach and an original evacuation ship.
 
-- **Existing v0.13 Norway Level 001 saves carry forward automatically.** If you completed Cold Landing, the next operation is Mountain Patrol. Soldiers, ranks, casualties and the historic memorial remain intact in the same WWII save key: green-dawn-ww2-campaign-v1.
-- The older **three jungle missions** remain playable in the separate jungle campaign. Its own save key is green-dawn-campaign-v1, so neither career interferes with the other.
-- Soldiers are promoted only for successful operations, and dead soldiers never come back. New recruits join the reserve after each victory. A wipeout allows a retry of the current operation with the existing survivors or fresh emergency recruits.
-- The mission-end memorial shows only the casualties of that mission; the camp memorial records all past dead.
-- **Save Data** exports and restores versioned JSON through Android Files, with confirmation before replacing a save. WWII and jungle backup formats are distinct.
+**Controls:** Tap to move, hold and drag to shoot/aim, tap FRAG to throw, split or join Alpha/Bravo squads. Soldiers follow their leader across the actual route; no mission select/replay shortcuts.
 
-### Android APK signing warning
+**Campaign philosophy:** Five preparatory operations lead to a much longer sixth battle. The real Battle of Dunkirk / Operation Dynamo, 26 May–4 June 1940, was an Allied evacuation under German attack. The named player's small-unit assignments are fictional; the historical result is an Allied withdrawal, not conquest.
 
-The GitHub Actions workflow still uses a temporary debug-signing certificate unless the owner configures permanent keystore secrets. Android may reject installing v0.14 on top of an older build if the certificate differs.
+## Progression after Mission 012
 
-**If you have progress you want to keep, do NOT uninstall the previous app to install v0.14. Uninstalling permanently deletes local soldier careers and memorials.** Installing in place is safe if Android accepts it. The backup/export system in v0.13 works only while that installed game is accessible; use it to retain a separate copy before any reinstall.
+The war map advances to **Mission 013 — Desert Recon**, the first of six planned Operation Compass missions. It is still locked until implemented. The full plan comprises 16 historically inspired six-mission chapters, then four **explicitly fictional alternate-history** missions ending in Berlin.
 
-## Campaign Plans
+**Permanent career, separate campaigns:** The original three jungle operations are still playable under green-dawn-campaign-v1 and are unaffected by this WW2 extension. The WWII campaign continues on green-dawn-ww2-campaign-v1 with its own memorial and JSON export/import under SAVE DATA. Both formats are independently validated.
 
-- Missions 001–006: Norway — all playable, ending in a longer evacuation battle.
-- Missions 007–096: Dunkirk, North Africa, Greece, Italy, Normandy, Netherlands and the Rhine — planned and locked.
-- Missions 097–100: Berlin — explicitly fictional alternate-history finale, not a description of the historical end of WWII.
+## Important Android installation / backup warning
 
-## Engineering and Tests
+Android upgrades require the APKs to share the same signing certificate. This experimental GitHub Actions APK may use a **temporary debug key** if persistent keystore secrets have not been configured.
 
-The game uses a self-contained canvas engine in index.html. Norway-specific map layouts and phase logic are recorded in norway-missions.js; campaign-map data is in ww2-campaign-data.js with the map interface ww2-campaign.html. Identical files are bundled under android/app/src/main/assets for offline play.
+**If Android cannot install v0.15 on top of the existing game, do not uninstall the old version if you want to keep your progress.** Uninstalling clears that version's saved soldiers and memorials. Export your save with **SAVE DATA → EXPORT SAVE FILE** before changing installations. The JSON file stays with you, not on a server.
 
-GitHub Actions checks the bundled files, runs **24 automated tests** covering all six Norway operations, save compatibility, no replay, escort failure, multi-objective completion and casualty records, and builds and verifies the Android APK signature.
+## Developer notes
 
-Android ID uk.co.greendawn.jungle. Minimum Android 8.0. No network permission, ads, tracking or online account.
+- Game engine: index.html (identical local Android WebView asset).
+- WWII historical map: ww2-campaign.html + ww2-campaign-data.js.
+- Norway scenarios: norway-missions.js.
+- **New Dunkirk scenario definitions: dunkirk-missions.js**, plus regional engine phases, original terrain sprites, two destructible defence conditions, medevac, armoured demolition, and beach evacuation in the offline engine.
+- Offline asset copies are bundled under android/app/src/main/assets.
+- 34+ automated gameplay, save, failure/retry, route, campaign map and memorial regression tests execute before GitHub Actions compiles and verifies the APK signature.
+- Android package: uk.co.greendawn.jungle; version 0.15.0; min Android 8.0; no network permission, ads or analytics.
